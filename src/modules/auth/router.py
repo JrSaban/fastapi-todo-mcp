@@ -23,6 +23,11 @@ router = APIRouter(tags=["Auth"])
 bearer_scheme = HTTPBearer()
 
 
+def sensitive_action_rate_limit_key(user_id: int) -> str:
+    """Redis key of the wrong-password counter shared by all sensitive actions."""
+    return f"rate_limit:sensitive_actions:user:{user_id}"
+
+
 def _rate_limit_redis_keys(request: Request, email: str) -> tuple[str, str]:
     """Get the rate limit keys for a request and email."""
     client_ip = request.client.host if request.client else "unknown"
@@ -80,10 +85,34 @@ async def check_login_rate_limit(
         )
 
 
+async def record_sensitive_action_failure(redis_client: Redis, user_id: int) -> None:
+    """Count one wrong current password toward the user's sensitive-action limit."""
+    key = sensitive_action_rate_limit_key(user_id)
+    await increment_rate_limit(redis_client, [key], settings.SENSITIVE_RATE_LIMIT_WINDOW_MINUTES)
+
+
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 # Type alias pour injection propre et lisible (standard Python moderne)
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 RateLimitLoginDep = Annotated[None, Depends(check_login_rate_limit)]
+
+
+async def check_sensitive_action_rate_limit(
+    current_user: CurrentUserDep,
+    redis_client: Annotated[Redis, Depends(get_redis_client)],
+) -> None:
+    key = sensitive_action_rate_limit_key(current_user.id)
+    retry_after = await get_retry_after(
+        redis_client, [key], settings.SENSITIVE_RATE_LIMIT_MAX_ATTEMPTS
+    )
+    if retry_after is not None:
+        raise TooManyRequestsError(
+            "Trop de tentatives, veuillez réessayer plus tard.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+SensitiveActionRateLimitDep = Annotated[None, Depends(check_sensitive_action_rate_limit)]
 
 
 @router.post(
