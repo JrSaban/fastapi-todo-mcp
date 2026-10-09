@@ -12,6 +12,8 @@ from src.core.config import settings
 
 _password_hasher = PasswordHasher()
 
+API_TOKEN_PREFIX: str = "tda_"
+
 
 def hash_password(password: str) -> str:
     """Hash a plain text password."""
@@ -47,7 +49,7 @@ def generate_refresh_token() -> str:
 
 def generate_api_token() -> str:
     """Generate a API token."""
-    return f"{settings.API_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
+    return f"{API_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
 
 
 def hash_token(token: str) -> str:
