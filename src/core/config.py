@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Prunable
     SOFT_DELETE_RETENTION_DAYS: int = 30
     JOB_RETENTION_DAYS: int = 30
+    API_TOKEN_EXPIRED_RETENTION_DAYS: int = 30
+
+    # API token
+    API_TOKEN_MAX_ACTIVE: int = 5
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod
