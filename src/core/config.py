@@ -55,6 +55,7 @@ class Settings(BaseSettings):
 
     # API token
     API_TOKEN_MAX_ACTIVE: int = 5
+    API_TOKEN_PREFIX="tda_"
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod
