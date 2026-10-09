@@ -45,6 +45,11 @@ def generate_refresh_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def hash_refresh_token(refresh_token: str) -> str:
-    """Hash a plain text refresh token."""
-    return hashlib.sha256(refresh_token.encode()).hexdigest()
+def generate_api_token() -> str:
+    """Generate a API token."""
+    return f"{settings.API_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
+
+
+def hash_token(token: str) -> str:
+    """Hash a plain text token."""
+    return hashlib.sha256(token.encode()).hexdigest()
