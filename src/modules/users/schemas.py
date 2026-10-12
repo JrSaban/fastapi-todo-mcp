@@ -95,6 +95,10 @@ class UserPasswordUpdate(BaseModel):
     confirm_new_password: str = Field(
         ..., min_length=6, max_length=255, description="Confirmation du nouveau mot de passe"
     )
+    revoke_api_tokens: bool = Field(
+        default=False,
+        description="Révoque tous vos tokens API existants.",
+    )
 
     @field_validator("confirm_new_password")
     @classmethod
