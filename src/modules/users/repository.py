@@ -132,6 +132,10 @@ class UserRepository(BaseRepository[User]):
 
         return await self.count_query(query)
 
+    async def lock(self, user_id: int) -> None:
+        """Lock the user's row until the end of the transaction."""
+        await self.session.execute(select(User.id).where(User.id == user_id).with_for_update())
+
     def _apply_filters(
         self,
         query: Select,
