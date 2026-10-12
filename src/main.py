@@ -170,8 +170,8 @@ async def idempotency(request: Request, call_next):
                 status_code=400,
                 content={"detail": "La clé d'idempotence est obligatoire avec un token API."},
             )
-        else:
-            return await call_next(request)
+
+        return await call_next(request)
 
     if not (idempotency_key := _get_idempotency_key(request)):
         return JSONResponse(
