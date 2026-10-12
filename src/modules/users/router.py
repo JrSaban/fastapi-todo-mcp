@@ -177,6 +177,7 @@ async def update_email(
     description="""
         Changer le mot de passe de l'utilisateur connecté.
         Toutes les sessions de l'utilisateur seront révoquées.
+        Les tokens API ne sont pas révoqués par défaut, mais l'utilisateur peut le demander.
     """,
 )
 async def update_password(
