@@ -3,6 +3,9 @@ Repository Pattern pour l'accès aux données de API Tokens.
 Encapsule les requêtes SQL (SQLAlchemy 2.0 select, add, delete).
 """
 
+from sqlalchemy import CursorResult
+from typing import cast
+from sqlalchemy import delete
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -39,6 +42,21 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         query = select(ApiToken).where(
             ApiToken.token_hash == token_hash,
             or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_usable_owner_id(self, token_hash: str, now: datetime) -> int | None:
+        """Get owner ID for a usable token hash."""
+        query = (
+            select(ApiToken.owner_id)
+            .join(User, User.id == ApiToken.owner_id)
+            .where(
+                ApiToken.token_hash == token_hash,
+                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
+                User.is_active.is_(True),
+                User.is_admin.is_(False),
+            )
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
@@ -84,17 +102,9 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
 
         return await self.count_query(query)
 
-    async def get_usable_owner_id(self, token_hash: str, now: datetime) -> int | None:
-        """Get owner ID for a usable token hash."""
-        query = (
-            select(ApiToken.owner_id)
-            .join(User, User.id == ApiToken.owner_id)
-            .where(
-                ApiToken.token_hash == token_hash,
-                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
-                User.is_active.is_(True),
-                User.is_admin.is_(False),
-            )
-        )
+    async def delete_all_for_owner(self, owner_id: int) -> int:
+        """Delete all API tokens for an owner."""
+        query = delete(ApiToken).where(ApiToken.owner_id == owner_id)
         result = await self.session.execute(query)
-        return result.scalar_one_or_none()
+        return cast(CursorResult, result).rowcount
+        
