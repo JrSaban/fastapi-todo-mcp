@@ -1,6 +1,7 @@
-"""Tests d'intégration des jetons d'API : création, liste, révocation et authentification."""
+"""Tests d'intégration des jetons d'API : gestion, authentification, middlewares et pruning."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import fakeredis
 import pytest
@@ -12,12 +13,15 @@ from src.core.config import settings
 from src.core.security import API_TOKEN_PREFIX, generate_api_token, hash_token
 from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
+from src.modules.api_tokens.tasks import prune_expired_api_tokens
 from src.modules.auth.router import sensitive_action_rate_limit_key
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 
 TOKENS_PATH = "/api/v1/api-tokens"
 ME_PATH = "/api/v1/users/me"
+TODOS_PATH = "/api/v1/todos"
+IP_KEY = "rate_limit:general:ip:127.0.0.1"
 PASSWORD = "secret123"  # the current_user / current_admin_user fixtures' password
 
 
@@ -356,3 +360,165 @@ async def test_last_used_at_is_refreshed_after_an_hour(
     after = await _last_used_at(db_session, token.id)
     assert before is not None and after is not None
     assert after > before
+
+
+# --- rate limiting and idempotency with an API token ---
+
+
+async def test_api_token_request_is_counted_per_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    redis_client: fakeredis.FakeAsyncRedis,
+) -> None:
+    """An agent shares its owner's general quota, like a JWT request, not the IP's."""
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    await client.get(ME_PATH, headers=_bearer(plain))
+
+    assert await redis_client.get(f"rate_limit:general:user:{current_user.id}") == "1"
+    assert await redis_client.get(IP_KEY) is None
+
+
+@pytest.mark.parametrize("token_state", ["unknown", "expired"])
+async def test_unusable_api_token_is_counted_per_ip(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    redis_client: fakeredis.FakeAsyncRedis,
+    token_state: str,
+) -> None:
+    """A token is looked up, not trusted: random `tda_` values would otherwise each get a
+    fresh counter and bypass the IP limit."""
+    if token_state == "unknown":
+        plain = generate_api_token()
+    else:
+        _, plain = await _issue_token(
+            db_session, current_user.id, expires_at=datetime.now(UTC) - timedelta(minutes=1)
+        )
+
+    await client.get(ME_PATH, headers=_bearer(plain))
+
+    assert await redis_client.get(IP_KEY) == "1"
+
+
+async def test_identity_lookup_failure_falls_back_to_ip(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    redis_client: fakeredis.FakeAsyncRedis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the middleware's lookup fails, the request goes on, counted by IP."""
+    _, plain = await _issue_token(db_session, current_user.id)
+    monkeypatch.setattr(
+        "src.main.ApiTokenRepository.get_usable_owner_id",
+        AsyncMock(side_effect=OSError("database down")),
+    )
+
+    response = await client.get(ME_PATH, headers=_bearer(plain))
+
+    assert response.status_code == 200
+    assert await redis_client.get(IP_KEY) == "1"
+
+
+async def test_idempotency_works_with_an_api_token(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """The idempotency middleware sees the token's owner: a retry is replayed, not
+    duplicated."""
+    _, plain = await _issue_token(db_session, current_user.id)
+    headers = {**_bearer(plain), "Idempotency-Key": "agent-retry-1"}
+
+    first = await client.post(TODOS_PATH, json={"title": "From an agent"}, headers=headers)
+    second = await client.post(TODOS_PATH, json={"title": "From an agent"}, headers=headers)
+
+    # Proven by the replay itself rather than a row count: in tests the request session is
+    # never committed, and the next API-token lookup rolls back the shared connection.
+    assert first.status_code == 201
+    assert second.headers["Idempotent-Replayed"] == "true"
+    assert second.json() == first.json()
+
+
+async def test_identity_is_looked_up_once_per_request(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rate limiting and idempotency share one lookup through request.state."""
+    _, plain = await _issue_token(db_session, current_user.id)
+    lookup = AsyncMock(return_value=current_user.id)
+    monkeypatch.setattr("src.main.ApiTokenRepository.get_usable_owner_id", lookup)
+
+    await client.post(
+        TODOS_PATH,
+        json={"title": "Once"},
+        headers={**_bearer(plain), "Idempotency-Key": "single-lookup"},
+    )
+
+    assert lookup.await_count == 1
+
+
+# --- PATCH /users/me/password with revoke_api_tokens ---
+
+
+@pytest.mark.parametrize(("revoke", "remaining"), [(True, 0), (False, 2)])
+async def test_password_change_revokes_tokens_only_on_request(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    revoke: bool,
+    remaining: int,
+) -> None:
+    """Tokens survive a password change by default; `revoke_api_tokens` deletes them all."""
+    await _issue_token(db_session, current_user.id)
+    await _issue_token(db_session, current_user.id)
+
+    response = await authenticated_client.patch(
+        f"{ME_PATH}/password",
+        json={
+            "old_password": PASSWORD,
+            "new_password": "new_password",
+            "confirm_new_password": "new_password",
+            "revoke_api_tokens": revoke,
+        },
+    )
+
+    assert response.status_code == 200
+    tokens = await ApiTokenRepository(db_session).list_for_owner(current_user.id)
+    assert len(tokens) == remaining
+
+
+# --- api_tokens:prune_expired ---
+
+
+async def test_prune_deletes_only_tokens_expired_beyond_retention(
+    db_session: AsyncSession, current_user: User
+) -> None:
+    """Expired for longer than API_TOKEN_EXPIRED_RETENTION_DAYS → deleted. Recently expired
+    (still shown to the user as expired), still valid and never-expiring tokens stay."""
+    now = datetime.now(UTC)
+    retention = timedelta(days=settings.API_TOKEN_EXPIRED_RETENTION_DAYS)
+    long_expired, _ = await _issue_token(
+        db_session, current_user.id, expires_at=now - retention - timedelta(days=1)
+    )
+    recently_expired, _ = await _issue_token(
+        db_session, current_user.id, expires_at=now - timedelta(days=1)
+    )
+    valid, _ = await _issue_token(db_session, current_user.id, expires_at=now + timedelta(days=1))
+    never_expiring, _ = await _issue_token(db_session, current_user.id)
+
+    result = await (await prune_expired_api_tokens.kiq()).wait_result()
+
+    assert result.return_value == {"api_tokens": 1}
+    remaining = {
+        token.id for token in await ApiTokenRepository(db_session).list_for_owner(current_user.id)
+    }
+    assert remaining == {recently_expired.id, valid.id, never_expiring.id}
+    assert long_expired.id not in remaining
+
+
+def test_prune_is_scheduled_weekly() -> None:
+    """Sunday 05:00 UTC, after the two maintenance prunings."""
+    assert prune_expired_api_tokens.labels["schedule"] == [{"cron": "0 5 * * 0"}]

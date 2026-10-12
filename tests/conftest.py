@@ -84,6 +84,7 @@ def background_code_uses_test_database(monkeypatch: pytest.MonkeyPatch) -> None:
     every test that runs a job would write into the real Postgres."""
     for module in (
         "src.main",
+        "src.modules.api_tokens.tasks",
         "src.modules.maintenance.tasks",
         "src.modules.maintenance.router",
         "src.modules.jobs.middleware",
