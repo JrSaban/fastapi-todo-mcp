@@ -6,7 +6,7 @@ Encapsule les requêtes SQL (SQLAlchemy 2.0 select, add, delete).
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.repository import BaseRepository
@@ -32,6 +32,27 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         query = select(ApiToken).where(ApiToken.id == token_id, ApiToken.owner_id == owner_id)
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
+
+    async def get_active_by_hash(self, token_hash: str, now: datetime) -> ApiToken | None:
+        """Get active token by its hash."""
+        query = select(ApiToken).where(
+            ApiToken.token_hash == token_hash,
+            or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def touch_last_used(self, token_id: int, now: datetime, older_than: datetime) -> None:
+        """Update last_used_at for a token if older than older_than."""
+        query = (
+            update(ApiToken)
+            .where(
+                ApiToken.id == token_id,
+                or_(ApiToken.last_used_at.is_(None), ApiToken.last_used_at < older_than),
+            )
+            .values(last_used_at=now)
+        )
+        await self.session.execute(query)
 
     async def create(
         self, *, owner_id: int, name: str, token_hash: str, expires_at: datetime | None

@@ -16,6 +16,7 @@ from src.modules.api_tokens.service import ApiTokenService
 from src.modules.auth.router import (
     CurrentUserDep,
     SensitiveActionRateLimitDep,
+    SessionUserDep,
     record_sensitive_action_failure,
 )
 from src.modules.users.repository import UserRepository
@@ -43,7 +44,7 @@ ApiTokenServiceDep = Annotated[ApiTokenService, Depends(get_api_token_service)]
 )
 async def create_api_token(
     service: ApiTokenServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: ApiTokenCreate,

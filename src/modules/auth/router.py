@@ -1,18 +1,21 @@
 """Routing & Controller Layer pour le domaine Auth."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import jwt
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import DbSessionDep
-from src.core.exceptions import TooManyRequestsError, UnauthorizedError
+from src.core.exceptions import ForbiddenError, TooManyRequestsError, UnauthorizedError
 from src.core.rate_limit import get_retry_after, increment_rate_limit
 from src.core.redis import get_redis_client
-from src.core.security import decode_access_token
+from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
+from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.auth.schemas import LoginRequest, RefreshTokenRequest, TokenResponse
 from src.modules.auth.service import AuthService
 from src.modules.users.models import User
@@ -21,6 +24,7 @@ from src.modules.users.repository import UserRepository
 router = APIRouter(tags=["Auth"])
 
 bearer_scheme = HTTPBearer()
+optional_bearer = HTTPBearer(auto_error=False)
 
 
 def sensitive_action_rate_limit_key(user_id: int) -> str:
@@ -37,13 +41,10 @@ def _rate_limit_redis_keys(request: Request, email: str) -> tuple[str, str]:
     return ip_key, email_key
 
 
-# Dependency pour injecter l'utilisateur connecté
-async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
-    session: DbSessionDep,
-) -> User:
+async def _user_from_access_token(token: str, session: AsyncSession) -> User:
+    """Get user from access token (JWT)."""
     try:
-        payload = decode_access_token(credentials.credentials)
+        payload = decode_access_token(token)
     except jwt.PyJWTError as jwt_error:
         raise UnauthorizedError("Token invalide ou expiré.") from jwt_error
 
@@ -57,6 +58,41 @@ async def get_current_user(
         raise UnauthorizedError("Utilisateur introuvable ou inactif.")
 
     return user
+
+
+async def _user_from_api_token(token: str, session: AsyncSession) -> User:
+    """Get user from API token."""
+    api_token_repository = ApiTokenRepository(session)
+    now = datetime.now(UTC)
+    api_token = await api_token_repository.get_active_by_hash(hash_token(token), now)
+    if api_token is None:
+        raise UnauthorizedError("Token invalide ou expiré.")
+
+    user_repository = UserRepository(session)
+    user = await user_repository.get_by_id(api_token.owner_id)
+    if user is None or not user.is_active:
+        raise UnauthorizedError("Utilisateur introuvable ou inactif.")
+
+    if user.is_admin:
+        raise ForbiddenError("Vous ne pouvez pas utiliser un token API en tant qu'admin.")
+
+    older_than = now - timedelta(hours=1)
+    await api_token_repository.touch_last_used(api_token.id, now, older_than)
+
+    return user
+
+
+# Dependency pour injecter l'utilisateur connecté
+async def get_current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
+    session: DbSessionDep,
+) -> User:
+    """Get current user."""
+    token = credentials.credentials
+    if token.startswith(API_TOKEN_PREFIX):
+        return await _user_from_api_token(token, session)
+
+    return await _user_from_access_token(token, session)
 
 
 # Factory de dépendance : instancie Repository et Service injectés par requête
@@ -95,6 +131,20 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 # Type alias pour injection propre et lisible (standard Python moderne)
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 RateLimitLoginDep = Annotated[None, Depends(check_login_rate_limit)]
+
+
+async def get_session_user(
+    current_user: CurrentUserDep,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(optional_bearer)],
+) -> User:
+    """Get session user (not API token)."""
+    if credentials is not None and credentials.credentials.startswith(API_TOKEN_PREFIX):
+        raise ForbiddenError("Vous ne pouvez pas utiliser un token API sur cette ressource.")
+
+    return current_user
+
+
+SessionUserDep = Annotated[User, Depends(get_session_user)]
 
 
 async def check_sensitive_action_rate_limit(

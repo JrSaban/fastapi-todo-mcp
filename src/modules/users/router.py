@@ -13,6 +13,7 @@ from src.modules.auth.router import (
     AuthServiceDep,
     CurrentUserDep,
     SensitiveActionRateLimitDep,
+    SessionUserDep,
     record_sensitive_action_failure,
 )
 from src.modules.users.models import User
@@ -150,7 +151,7 @@ async def update_user(
 async def update_email(
     service: UserServiceDep,
     auth_service: AuthServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: UserSelfEmailUpdate,
@@ -180,7 +181,7 @@ async def update_email(
 async def update_password(
     service: UserServiceDep,
     auth_service: AuthServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: UserPasswordUpdate,

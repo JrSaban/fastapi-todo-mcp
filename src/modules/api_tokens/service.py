@@ -24,6 +24,9 @@ class ApiTokenService:
 
     async def create_token(self, current_user: User, data: ApiTokenCreate) -> tuple[ApiToken, str]:
         """Create a new API token for the current user."""
+        if current_user.is_admin:
+            raise ForbiddenError("Vous ne pouvez pas utiliser un token API en tant qu'admin.")
+
         if not verify_password(data.current_password, current_user.hashed_password):
             raise ForbiddenError("Le mot de passe actuel ne correspond pas")
 
