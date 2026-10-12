@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 
 import fakeredis
 import pytest
+from argon2 import PasswordHasher
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -20,6 +21,7 @@ os.environ.setdefault("DEBUG", "False")
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-not-for-production-123456789012"
 os.environ["APP_ENV"] = "test"
 
+import src.core.security as security  # noqa: E402
 from src.core.database import Base, get_db_session  # noqa: E402
 from src.core.redis import get_redis_client  # noqa: E402
 from src.core.security import hash_password  # noqa: E402
@@ -28,6 +30,10 @@ from src.modules.auth.router import get_current_user  # noqa: E402
 from src.modules.users.models import User  # noqa: E402
 from src.modules.users.repository import UserRepository  # noqa: E402
 from src.modules.users.schemas import UserCreate  # noqa: E402
+
+# Argon2 is deliberately slow (~40 ms per hash or verify), which protects nothing in tests:
+# give them the cheapest parameters. Production keeps the defaults.
+security._password_hasher = PasswordHasher(time_cost=1, memory_cost=8, parallelism=1)
 
 # Base de données SQLite en mémoire vive (ultra-rapide, isolée par session de test)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
