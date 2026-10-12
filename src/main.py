@@ -26,6 +26,7 @@ from src.core.logging import setup_logging
 from src.core.rate_limit import increment_rate_limit, seconds_until_reset
 from src.core.redis import get_redis_client
 from src.core.security import decode_access_token
+from src.modules.api_tokens.router import router as api_tokens_router
 from src.modules.auth.router import router as auth_router
 from src.modules.categories.router import router as categories_router
 from src.modules.jobs.router import router as jobs_router
@@ -67,6 +68,7 @@ app.include_router(categories_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
 app.include_router(maintenance_router, prefix=settings.API_V1_STR)
 app.include_router(jobs_router, prefix=settings.API_V1_STR)
+app.include_router(api_tokens_router, prefix=settings.API_V1_STR)
 
 
 logger = structlog.get_logger()
