@@ -3,13 +3,11 @@ Repository Pattern pour l'accès aux données de API Tokens.
 Encapsule les requêtes SQL (SQLAlchemy 2.0 select, add, delete).
 """
 
-from sqlalchemy import CursorResult
-from typing import cast
-from sqlalchemy import delete
 from collections.abc import Sequence
 from datetime import datetime
+from typing import cast
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import CursorResult, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.repository import BaseRepository
@@ -107,4 +105,3 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         query = delete(ApiToken).where(ApiToken.owner_id == owner_id)
         result = await self.session.execute(query)
         return cast(CursorResult, result).rowcount
-        

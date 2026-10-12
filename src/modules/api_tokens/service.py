@@ -59,3 +59,7 @@ class ApiTokenService:
             raise NotFoundError("Token introuvable.")
 
         await self.repository.delete(token)
+
+    async def revoke_all(self, current_user: User) -> int:
+        """Revoke all API tokens for the current user."""
+        return await self.repository.delete_all_for_owner(current_user.id)
