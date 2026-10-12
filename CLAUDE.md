@@ -51,7 +51,7 @@ uv run alembic upgrade head
 
 ## Tests
 
-Integration tests (`tests/test_*.py`) go through the full FastAPI stack with the `client` fixture, which overrides two dependencies: `get_db_session` (in-memory SQLite via `aiosqlite`, tables created and dropped around every test) and `get_redis_client` (a per-test `fakeredis.FakeAsyncRedis`, exposed as the `redis_client` fixture so a test can inspect or seed keys directly). The rate-limit and idempotency middlewares call `get_redis_client()` themselves, outside dependency injection, so `dependency_overrides` doesn't reach them: the `client` fixture also monkeypatches `src.core.redis.redis_client` with the same fake. Every test starts with an empty fake, hence fresh rate-limit counters and idempotency keys. Both middlewares read the user from the JWT, not from `get_current_user`: a test that needs them to see a user sends a real `Authorization: Bearer` header (`create_access_token`), even with `authenticated_client`. Unit tests (`tests/unit/`) isolate one `*Service` by passing `AsyncMock` for its repositories and its Redis client; the module-level functions of `src/core/security.py` are called directly by services rather than injected, so they are patched at the import site: `@patch("src.modules.<module>.service.<function_name>")`.
+Integration tests (`tests/test_*.py`) go through the full FastAPI stack with the `client` fixture, which overrides two dependencies: `get_db_session` (in-memory SQLite via `aiosqlite`, tables created and dropped around every test) and `get_redis_client` (a per-test `fakeredis.FakeAsyncRedis`, exposed as the `redis_client` fixture so a test can inspect or seed keys directly). The rate-limit and idempotency middlewares call `get_redis_client()` themselves, outside dependency injection, so `dependency_overrides` doesn't reach them: the `client` fixture also monkeypatches `src.core.redis.redis_client` with the same fake. Every test starts with an empty fake, hence fresh rate-limit counters and idempotency keys. Both middlewares resolve the user themselves (JWT signature or API-token lookup), not through `get_current_user`: a test that needs them to see a user sends a real `Authorization: Bearer` header (`create_access_token`, or an API token), even with `authenticated_client`. Unit tests (`tests/unit/`) isolate one `*Service` by passing `AsyncMock` for its repositories and its Redis client; the module-level functions of `src/core/security.py` are called directly by services rather than injected, so they are patched at the import site: `@patch("src.modules.<module>.service.<function_name>")`.
 
 Which kind to write:
 
@@ -62,6 +62,8 @@ Which kind to write:
 `conftest.py` force-sets `JWT_SECRET_KEY` with `os.environ[...]` but `DEBUG` with `os.environ.setdefault` right above it, both before any `src.*` import. The difference is deliberate, not an inconsistency to fix: tests must never depend on the secret in a developer's `.env`, while `DEBUG` may be turned on from the shell to see logs. It also force-sets `APP_ENV=test`, which makes `src/core/broker.py` build an in-memory broker (see "Background jobs"), and swaps `security._password_hasher` for an Argon2 hasher at minimal cost — the defaults halved the suite's speed. `_DUMMY_PASSWORD_HASH` is computed at import with the real parameters, so an unknown-email login keeps its cost.
 
 The SQLite test engine runs `PRAGMA foreign_keys=ON` on every connection, so tests enforce FKs and `ON DELETE CASCADE` like Postgres. A test row must point at rows that really exist — a hardcoded `created_by_id=1` with no such user now fails.
+
+All test sessions share **one** SQLite connection (`StaticPool`), and the `get_db_session` override never commits. A request carrying an API token makes the middlewares open their own session, and closing it rolls back that shared connection: a test must **commit** its setup data before such a request, and writes made by earlier requests in the same test are lost (assert through responses, not row counts).
 
 ### Auth fixtures
 
@@ -87,7 +89,7 @@ router.py → service.py → repository.py → models.py
 
 Services return ORM models and the router serializes them through `response_model`. The one deliberate exception is the cached read path of `CategoryService` (`list_categories`, `get_category_cached`), which returns `CategoryResponse` objects: a cache hit yields JSON, and an ORM instance can't be rebuilt from it, so both the hit and the miss path return the schema to keep one return type. Don't generalize this to uncached services.
 
-`auth` and `maintenance` have no `models.py`/`repository.py` (they own no table), and `todos_categories` holds only the association `Table`. A module may also have a `tasks.py` for its background jobs (see "Background jobs").
+`auth` and `maintenance` have no `models.py`/`repository.py` (they own no table; API tokens have their own `api_tokens` module), and `todos_categories` holds only the association `Table`. A module may also have a `tasks.py` for its background jobs (see "Background jobs").
 
 `src/core/` is what every module shares:
 
@@ -95,11 +97,11 @@ Services return ORM models and the router serializes them through `response_mode
 |---|---|
 | `database.py` | Async engine, `Base` (declares `id` — no model repeats it), `get_db_session`: **one transaction per request**, committed after the handler returns but **before the response is sent**, rolled back on any exception. Repositories only `flush()`. Always inject it through `DbSessionDep` (`scope="function"`), never `Depends(get_db_session)` directly: that is what makes the commit happen before the response is sent, which idempotency and the job launch rely on. |
 | `config.py` | `pydantic-settings`, reads `.env`. |
-| `exceptions.py` | `AppBaseError` and its subclasses, generic rather than per-resource, each carrying its `status_code`. A single `@app.exception_handler(AppBaseError)` in `main.py` handles them all, so a new error type is just a subclass with a `status_code`. |
+| `exceptions.py` | `AppBaseError` and its subclasses, generic rather than per-resource, each carrying its `status_code`. A single `@app.exception_handler(AppBaseError)` in `main.py` handles them all, so a new error type is just a subclass with a `status_code`. `InvalidPasswordError(ForbiddenError)` is raised for a wrong current password **only**: it is what routers count toward the sensitive-action limit, so a 403 for any other reason never does. |
 | `repository.py` | `BaseRepository` and `SoftDeleteRepository` (below). |
 | `broker.py` | The Taskiq `broker` (in-memory under tests, with `JobTrackingMiddleware`) and `scheduler` (see "Background jobs"). |
 | `schemas.py` | `PaginatedResponse[T]` and `LimitQuery`. |
-| `security.py` | Argon2 password hashing, JWT access tokens, refresh-token generation and hashing. |
+| `security.py` | Argon2 password hashing, JWT access tokens, refresh- and API-token generation, `hash_token` (SHA-256, shared by both). `API_TOKEN_PREFIX` is a constant, not a setting: `get_current_user` recognises API tokens by it, so changing it would orphan every token already issued. |
 | `redis.py` | The shared async client (`decode_responses=True`, so values come back as `str`), the `get_redis_client` dependency, and `hash_redis_key`. |
 | `logging.py` | `structlog` setup. |
 | `rate_limit.py` | `get_retry_after` / `increment_rate_limit` / `seconds_until_reset`, the Redis counters behind every rate limit (see below). |
@@ -167,6 +169,15 @@ Rules, all deliberate:
 - **Changing your password revokes the session too.** `PATCH /users/me/password` calls `revoke_session`, once the password update succeeds.
 - SHA-256 rather than Argon2 because the token is high-entropy and must be looked up by its hash. `hash_redis_key` (MD5) is a different thing: it only shortens cache keys and has no security role.
 
+**API tokens** (`src/modules/api_tokens/`) — personal, long-lived tokens for agents, sent in the same `Authorization: Bearer` header. `tda_` + `secrets.token_urlsafe(32)`; only the SHA-256 is stored, and the plain value is returned once, by `POST /api-tokens` (`ApiTokenCreatedResponse` is the only schema with a `token` field — the router builds it from the row plus the plain value, which no row holds).
+
+- **`get_current_user` dispatches on the prefix.** An API token must exist and not be expired (checked in SQL: SQLite returns timestamps without a timezone, so Python comparisons would fail in tests), and its owner must be active (401) and **not an admin (403)** — including an owner promoted after creating the token. A token never acts as an admin.
+- **`SessionUserDep` refuses an API token** (403) on `POST /api-tokens`, `PATCH /users/me/email` and `/me/password`: an agent can't mint tokens or manage the account. It doesn't *require* a JWT, it rejects the `tda_` prefix — the auth fixtures override `get_current_user` and send no header.
+- **Creation** refuses admins, then checks the current password (`InvalidPasswordError`, counted in the sensitive-action limit), then caps active tokens at `API_TOKEN_MAX_ACTIVE` (409). The user's row is locked first (`UserRepository.lock`, `SELECT ... FOR UPDATE`) so concurrent creations can't exceed the cap; SQLite ignores `FOR UPDATE`, so a unit test only checks the lock comes before the count.
+- **`last_used_at`** is written at most once an hour, by a conditional `UPDATE`.
+- Revoking deletes the row. A password change keeps the tokens unless `revoke_api_tokens: true`. `api_tokens:prune_expired` (Sunday 05:00 UTC) deletes tokens expired for more than `API_TOKEN_EXPIRED_RETENTION_DAYS`; never-expiring ones are never pruned.
+- `GET /api-tokens` is a plain list, not a `PaginatedResponse`: it is bounded by the active cap plus the retention of expired tokens.
+
 **Roles** — `is_admin`/`is_active` are not settable through `PATCH /users/{id}` (`UserUpdate` has no such fields; Pydantic drops them silently). They change only through `PATCH /users/{id}/active` and `.../admin`, both admin-only and backed by dedicated repository methods (`set_active`/`set_admin`). Both refuse to deactivate or demote the last usable admin, counted as `count(is_admin=True, is_active=True) == 1` — the `is_active=True` part matters, otherwise already-deactivated admins would be counted as available.
 
 **Email** is excluded from `UserUpdate` the same way, for the same reason: changing it is sensitive enough to need its own gate. `PATCH /users/me/email` requires the current password; `PATCH /users/{id}/email` is admin-only and 403s on the admin's own id, forcing them through the password-gated route for themselves too. Both revoke the target's session via `AuthService.revoke_session`.
@@ -225,15 +236,16 @@ Three independent limits, all fixed-window counters in Redis, all answering 429 
 
 | Limit | Where | Counted per | What counts |
 |---|---|---|---|
-| **General** | `rate_limit` middleware in `main.py` | user ID from a valid access token, else client IP | every request except `GET /health` |
+| **General** | `rate_limit` middleware in `main.py` | user ID from a valid access token or usable API token, else client IP | every request except `GET /health` |
 | **Login** | `POST /login` | client IP **and** email, separately — either one blocks | failed logins only |
-| **Sensitive actions** | `PATCH /users/me/email` and `/me/password` | user, one counter shared by both routes | wrong current password only |
+| **Sensitive actions** | `PATCH /users/me/email`, `/me/password`, `POST /api-tokens` | user, one counter shared by all three | wrong current password only (`InvalidPasswordError`) |
 
 - **The TTL is set with `EXPIRE ... NX` after every `INCR`**, not only when the counter is created: if setting it ever failed once, the next increment sets it, instead of leaving a counter that never expires and blocks forever.
 - **`Retry-After` is the blocking counter's remaining TTL**, in seconds (`seconds_until_reset`, never below 1). The middleware sets it on its own `JSONResponse`; the login and sensitive-action dependencies pass it through `TooManyRequestsError(..., headers=...)`, which the `AppBaseError` handler in `main.py` copies onto the response. Any other exception can carry headers the same way.
 - **The login and sensitive-action limits live in the router, not the service.** A dependency (`RateLimitLoginDep`, `SensitiveActionRateLimitDep`) checks the counter before the handler runs; the handler catches the service's exception (`UnauthorizedError` / `ForbiddenError`), increments, and re-raises. Services stay unaware of rate limiting. A new limited action follows the same shape.
 - **Only failures count** on login and sensitive actions, so a legitimate user isn't throttled by succeeding. A successful login does **not** reset the login counters.
-- **The general limit is a middleware**, because it covers every route. It reads the user ID straight from the JWT signature, with no database call; an invalid or expired token falls back to the IP instead of failing. It returns its 429 as a `JSONResponse` itself rather than raising `TooManyRequestsError`.
+- **The general limit is a middleware**, because it covers every route. It reads the user ID from the JWT signature with no database call; an invalid or expired token falls back to the IP instead of failing. It returns its 429 as a `JSONResponse` itself rather than raising `TooManyRequestsError`.
+- **An API token is looked up, never trusted** (`_request_user_id` in `main.py`, `ApiTokenRepository.get_usable_owner_id`): one query applying the same rules as `get_current_user`, so an unknown, expired, admin-owned or deactivated token counts by IP. Counting per token hash without a lookup would hand every random `tda_` value a fresh bucket. The result is computed once per request and kept in `request.state` for the idempotency middleware; if the lookup fails, the request goes on counted by IP.
 - **The general limit fails open.** If Redis raises, the middleware logs `redis_unavailable` and lets the request through uncounted, instead of turning every request into a 500 — a deliberate choice, not a gap to close.
 - **`GET /health` is never counted**, so a monitoring probe can neither consume a quota nor get a 429.
 - **`log_requests` must stay declared after `rate_limit` in `main.py`**, so that a 429 from the general limit is still logged and still carries `X-Request-ID`. `test_blocked_request_still_carries_request_id` checks it.
@@ -247,7 +259,7 @@ idempotency:<user_id>:<key> → {"status": "in_progress", "request_hash"}       
                             → {"status": "done", "request_hash", "response_status", "response_body"}  (IDEMPOTENCY_KEY_TTL_MINUTES)
 ```
 
-- **Keys are scoped per user**, read from the JWT like the general rate limit. Without a valid token the middleware steps aside and the route answers 401. `POST /users` is not covered: email uniqueness already blocks the duplicate.
+- **Keys are scoped per user**, with the same identity as the general rate limit (JWT or API token). Without a valid token the middleware steps aside and the route answers 401. `POST /users` is not covered: email uniqueness already blocks the duplicate.
 - **The key is claimed atomically before the route runs** (`SET NX`, short TTL so a crash can't lock it for an hour). A request never runs without holding the claim: a key in progress, or one that vanished between the failed claim and the read, answers 409.
 - **Same key, different request → 422**, compared by SHA-256 of the method, the path and the raw body. The method and path matter: a key reused on another route must not replay that route's resource. Empty or longer than 255 characters → 400.
 - **Only 2xx responses are stored.** A 4xx depends on state that can change (a taken category name may be freed), so any non-2xx answer or exception releases the key and the retry runs for real. Replays carry `Idempotent-Replayed: true`.
@@ -295,6 +307,6 @@ Accepted for now; don't "fix" them as a side effect of other work, and don't des
 - **The published image is a dev image.** The `Dockerfile` starts uvicorn with `--reload` and runs as root, and that is what CI pushes to GHCR.
 - **Registered emails can be enumerated through registration.** `POST /users` answers `409` for an email that is already taken. `/login` no longer leaks this (same message, same timing), but the 409 itself does: closing it means answering identically whether or not the email exists and confirming by email.
 - **The last-admin guard is not atomic.** `set_user_active`/`set_user_admin` count the active admins, then write. Two admins demoting or deactivating each other at the same instant both pass the check and leave no admin.
-- **An idempotent replay doesn't recheck the account.** The middleware reads the user from the JWT signature only, so a replay returns the stored response without `get_current_user`'s `is_active` check: a deactivated user still gets their own stored 201 until their access token expires (5 minutes at most), while every route already answers 401.
+- **An idempotent replay doesn't recheck the account (JWT only).** For a JWT the middleware reads the user from the signature only, so a replay returns the stored response without `get_current_user`'s `is_active` check: a deactivated user still gets their own stored 201 until their access token expires (5 minutes at most), while every route already answers 401. An API token's lookup does check the account.
 - **A request that outlives the idempotency lock can run twice.** The claim expires after `IDEMPOTENCY_LOCK_TTL_SECONDS` even if the request is still running, so a retry can claim the key and run the route in parallel. The first request's `save_idempotent_response`/`release_idempotency_key` then overwrite or delete the second one's claim, since neither checks the claim is still its own. Fixing it means an ownership token stored at claim time and checked atomically on save and release.
 - **The login and sensitive-action limits can be bypassed in parallel.** The counter is read before the attempt and incremented only after a failure, so simultaneous attempts all pass the check: 40 parallel logins gave 40 × 401 and no 429. Planned fix: `ROADMAP.md`, "Atomic attempt limits".

@@ -21,6 +21,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 ## Features
 
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
+- **Personal API tokens** — long-lived, revocable tokens for agents (up to 5 active per user, 30 days, 90 days or no expiry), shown once at creation and stored hashed; they can't manage the account or act as an admin
 - **Role-based access control** — regular users vs. admins, with dedicated endpoints to promote/demote or (de)activate accounts (protected against locking out the last remaining admin)
 - **Ownership & permissions** — a todo is private to its owner (admins see everything); a category is visible to everyone but only its creator or an admin can edit it, and only an admin can delete it
 - **Todos ↔ Categories** — many-to-many relationship, with optional eager-loading (`?include=categories`) and filtering by category
@@ -108,7 +109,7 @@ All routes are prefixed with `/api/v1`. `POST /todos` and `POST /categories` acc
 | `GET` | `/users/me` | Current user's profile |
 | `GET` | `/users` | List users *(admin only)* |
 | `GET` `PATCH` | `/users/{id}` | View / update a profile (yourself, or anyone as an admin) |
-| `PATCH` | `/users/me/password` | Change your own password *(logs you out)* |
+| `PATCH` | `/users/me/password` | Change your own password *(logs you out; can also revoke your API tokens)* |
 | `PATCH` | `/users/me/email` | Change your own email, current password required *(logs you out)* |
 | `PATCH` | `/users/{id}/email` | Change another user's email *(admin only, logs them out)* |
 | `PATCH` | `/users/{id}/active` `/admin` | (De)activate or promote a user *(admin only)* |
@@ -120,6 +121,9 @@ All routes are prefixed with `/api/v1`. `POST /todos` and `POST /categories` acc
 | `POST` | `/maintenance/prune` | Start the soft-delete pruning now, returns the job to follow *(admin only)* |
 | `GET` | `/jobs` | List jobs (your own, or all for admins) |
 | `GET` | `/jobs/{task_id}` | A job's status, result or error |
+| `POST` | `/api-tokens` | Create a personal API token, current password required *(the token is shown once)* |
+| `GET` | `/api-tokens` | List your API tokens (never their value) |
+| `DELETE` | `/api-tokens/{id}` | Revoke one of your API tokens |
 
 ## Project structure
 
@@ -128,7 +132,8 @@ src/
 ├── core/            # cross-cutting: database, redis, config, logging, exceptions, security,
 │                    # rate limiting, idempotency, generic repository, task broker
 ├── modules/
-│   ├── auth/        # login, refresh, logout, JWT validation
+│   ├── auth/        # login, refresh, logout, JWT and API-token validation
+│   ├── api_tokens/   # personal API tokens for agents
 │   ├── users/        # user profiles, admin management
 │   ├── todos/        # todos, ownership
 │   ├── categories/   # categories, creator/admin permissions, cache
