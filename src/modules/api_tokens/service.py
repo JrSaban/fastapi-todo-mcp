@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from src.core.config import settings
-from src.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from src.core.exceptions import ConflictError, ForbiddenError, InvalidPasswordError, NotFoundError
 from src.core.security import (
     generate_api_token,
     hash_token,
@@ -28,7 +28,7 @@ class ApiTokenService:
             raise ForbiddenError("Vous ne pouvez pas utiliser un token API en tant qu'admin.")
 
         if not verify_password(data.current_password, current_user.hashed_password):
-            raise ForbiddenError("Le mot de passe actuel ne correspond pas")
+            raise InvalidPasswordError("Le mot de passe actuel ne correspond pas")
 
         await self.user_repository.lock(current_user.id)
 

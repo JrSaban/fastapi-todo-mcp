@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 from redis.asyncio import Redis
 
 from src.core.database import DbSessionDep
-from src.core.exceptions import ForbiddenError
+from src.core.exceptions import InvalidPasswordError
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.auth.router import (
@@ -161,7 +161,7 @@ async def update_email(
             current_user=current_user,
             data=data,
         )
-    except ForbiddenError:
+    except InvalidPasswordError:
         await record_sensitive_action_failure(redis_client, current_user.id)
         raise
 
@@ -191,7 +191,7 @@ async def update_password(
             current_user=current_user,
             data=data,
         )
-    except ForbiddenError:
+    except InvalidPasswordError:
         await record_sensitive_action_failure(redis_client, current_user.id)
         raise
 

@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.exc import IntegrityError
 
-from src.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from src.core.exceptions import ConflictError, ForbiddenError, InvalidPasswordError, NotFoundError
 from src.core.security import hash_password, verify_password
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
@@ -95,7 +95,7 @@ class UserService:
     async def update_email(self, current_user: User, data: UserSelfEmailUpdate) -> User:
         """Update email of a user."""
         if not verify_password(data.current_password, current_user.hashed_password):
-            raise ForbiddenError("Le mot de passe actuel ne correspond pas")
+            raise InvalidPasswordError("Le mot de passe actuel ne correspond pas")
 
         try:
             return await self.repository.update_email(current_user, data.new_email)
@@ -109,7 +109,7 @@ class UserService:
     async def update_password(self, current_user: User, data: UserPasswordUpdate) -> User:
         """Update password of a user."""
         if not verify_password(data.old_password, current_user.hashed_password):
-            raise ForbiddenError("L'ancien mot de passe ne correspond pas")
+            raise InvalidPasswordError("L'ancien mot de passe ne correspond pas")
 
         hashed_password = hash_password(data.new_password)
         return await self.repository.update_password(current_user, hashed_password)

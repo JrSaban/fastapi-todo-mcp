@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from redis.asyncio import Redis
 
 from src.core.database import DbSessionDep
-from src.core.exceptions import ForbiddenError
+from src.core.exceptions import InvalidPasswordError
 from src.core.redis import get_redis_client
 from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
@@ -51,7 +51,7 @@ async def create_api_token(
 ) -> ApiTokenCreatedResponse:
     try:
         api_token, plain_token = await service.create_token(current_user, data)
-    except ForbiddenError:
+    except InvalidPasswordError:
         await record_sensitive_action_failure(redis_client, current_user.id)
         raise
 

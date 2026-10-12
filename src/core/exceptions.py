@@ -47,4 +47,5 @@ class TooManyRequestsError(AppBaseError):
 
 class InvalidPasswordError(ForbiddenError):
     """Invalid password error."""
+
     pass
