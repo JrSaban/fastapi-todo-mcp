@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.repository import BaseRepository
 from src.modules.api_tokens.models import ApiToken
+from src.modules.users.models import User
 
 
 class ApiTokenRepository(BaseRepository[ApiToken]):
@@ -82,3 +83,18 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         )
 
         return await self.count_query(query)
+
+    async def get_usable_owner_id(self, token_hash: str, now: datetime) -> int | None:
+        """Get owner ID for a usable token hash."""
+        query = (
+            select(ApiToken.owner_id)
+            .join(User, User.id == ApiToken.owner_id)
+            .where(
+                ApiToken.token_hash == token_hash,
+                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
+                User.is_active.is_(True),
+                User.is_admin.is_(False),
+            )
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()

@@ -28,14 +28,18 @@ async def _issue_token(
     expires_at: datetime | None = None,
     last_used_at: datetime | None = None,
 ) -> tuple[ApiToken, str]:
-    """Store a token straight through the repository; return the row and its plain value."""
+    """Store a token straight through the repository; return the row and its plain value.
+
+    Committed: a request carrying an API token makes the middlewares open their own session,
+    and closing it rolls back the single shared test connection, uncommitted rows included.
+    """
     plain = generate_api_token()
     token = await ApiTokenRepository(session).create(
         owner_id=owner_id, name="Agent", token_hash=hash_token(plain), expires_at=expires_at
     )
     if last_used_at is not None:
         token.last_used_at = last_used_at
-        await session.flush()
+    await session.commit()
     return token, plain
 
 
@@ -253,6 +257,7 @@ async def test_revoked_token_no_longer_authenticates(
 ) -> None:
     token, plain = await _issue_token(db_session, current_user.id)
     await ApiTokenRepository(db_session).delete(token)
+    await db_session.commit()
 
     response = await client.get(ME_PATH, headers=_bearer(plain))
 
@@ -264,6 +269,7 @@ async def test_token_of_a_deactivated_user_returns_401(
 ) -> None:
     _, plain = await _issue_token(db_session, current_user.id)
     await UserRepository(db_session).set_active(current_user, False)
+    await db_session.commit()
 
     response = await client.get(ME_PATH, headers=_bearer(plain))
 
@@ -276,6 +282,7 @@ async def test_token_of_an_admin_is_refused(
     """A token never authenticates an admin, including one promoted after its creation."""
     _, plain = await _issue_token(db_session, current_user.id)
     await UserRepository(db_session).set_admin(current_user, True)
+    await db_session.commit()
 
     response = await client.get(ME_PATH, headers=_bearer(plain))
 
