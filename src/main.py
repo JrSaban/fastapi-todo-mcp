@@ -145,7 +145,7 @@ async def _request_user_id(request: Request) -> str | None:
 
 
 def _is_idempotent_route(request: Request) -> bool:
-    """Check if the request has to be checked for idempotency."""
+    """Whether the route accepts an Idempotency-Key."""
     return request.method == "POST" and request.url.path in IDEMPOTENT_ROUTES
 
 
