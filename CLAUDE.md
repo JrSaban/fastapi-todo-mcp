@@ -252,7 +252,7 @@ Three independent limits, all fixed-window counters in Redis, all answering 429 
 
 ### Idempotency keys
 
-An optional `Idempotency-Key` header on `POST /todos` and `POST /categories` (`IDEMPOTENT_ROUTES` in `main.py`): a retried request gets the stored response back instead of creating a duplicate. The `idempotency` middleware makes the HTTP decisions; `src/core/idempotency.py` only stores, and knows nothing of routes or requests.
+An `Idempotency-Key` header on `POST /todos` and `POST /categories` (`IDEMPOTENT_ROUTES` in `main.py`): a retried request gets the stored response back instead of creating a duplicate. **Optional with a JWT, required with an API token** (400 without it): an agent may retry blindly, a human session may not need it. The middleware knows which by `request.state.auth_method`, set by `_request_user_id`; a token that resolves to no user gets the route's 401, never this 400. The `idempotency` middleware makes the HTTP decisions; `src/core/idempotency.py` only stores, and knows nothing of routes or requests.
 
 ```
 idempotency:<user_id>:<key> → {"status": "in_progress", "request_hash"}                        (IDEMPOTENCY_LOCK_TTL_SECONDS)

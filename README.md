@@ -28,7 +28,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **Pagination & filtering** — every list endpoint supports `skip`/`limit` (page sizes of 10, 25, 50 or 100), free-text search, and resource-specific filters (status, category, role, ...)
 - **Soft deletes** on todos and categories — a deleted row stays in the database but is invisible to the API, like Laravel's `SoftDeletes`, and is deleted for good by a weekly background job after 30 days, like Laravel's `Prunable`
 - **Rate limiting** — a general per-user / per-IP request quota, plus stricter limits on failed logins and on wrong-password attempts when changing your email or password
-- **Idempotency keys** — an optional `Idempotency-Key` header on `POST /todos` and `POST /categories`, so a retried request returns the original response instead of creating a duplicate
+- **Idempotency keys** — an `Idempotency-Key` header on `POST /todos` and `POST /categories`, so a retried request returns the original response instead of creating a duplicate; optional for a login session, required for an API token
 - **Background jobs with tracking** — every run is recorded (pending, running, succeeded, failed) and readable through the API, each user seeing their own jobs and admins all of them, scheduled runs included; admins can also start the pruning on demand
 - **Redis caching** on category reads, invalidated on every write
 - **Structured logging** — one JSON line per request, correlated by an `X-Request-ID` header
@@ -98,7 +98,7 @@ uv run ruff format .       # format
 
 ## API overview
 
-All routes are prefixed with `/api/v1`. `POST /todos` and `POST /categories` accept an optional `Idempotency-Key` header.
+All routes are prefixed with `/api/v1`. `POST /todos` and `POST /categories` accept an `Idempotency-Key` header, required when authenticating with an API token.
 
 | Method | Path | Description |
 |---|---|---|
