@@ -228,4 +228,16 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
         body = _filter_none_values(body)
         return await api.request("POST", "/categories", json=body, idempotency_key=idempotency_key)
 
+    @server.tool()
+    async def delete_todo(
+        todo_id: Annotated[int, Field(description="The ID of the todo to delete.")],
+    ) -> dict:
+        """Delete a specific todo for the current user."""
+        response = await api.request("DELETE", f"/todos/{todo_id}")
+
+        if response.status_code == 204:
+            return {"deleted_todo_id": todo_id}
+
+        raise ToolError(f"Failed to delete todo with ID {todo_id}")
+
     return server
