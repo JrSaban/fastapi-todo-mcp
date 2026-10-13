@@ -5,13 +5,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from redis.asyncio import Redis
 
-from src.core.config import settings
 from src.core.database import DbSessionDep
-from src.core.exceptions import ForbiddenError, TooManyRequestsError
-from src.core.rate_limit import get_retry_after, increment_rate_limit
+from src.core.exceptions import InvalidPasswordError
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
-from src.modules.auth.router import AuthServiceDep, CurrentUserDep
+from src.modules.auth.router import (
+    AuthServiceDep,
+    CurrentUserDep,
+    SensitiveActionRateLimitDep,
+    SessionUserDep,
+    record_sensitive_action_failure,
+)
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 from src.modules.users.schemas import (
@@ -29,10 +33,6 @@ from src.modules.users.service import UserService
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
-def _rate_limit_redis_key(user_id: int) -> str:
-    return f"rate_limit:sensitive_actions:user:{user_id}"
-
-
 # Factory de dépendance : instancie Repository et Service injectés par requête
 def get_user_service(
     session: DbSessionDep,
@@ -41,24 +41,8 @@ def get_user_service(
     return UserService(repository)
 
 
-async def check_sensitive_action_rate_limit(
-    current_user: CurrentUserDep,
-    redis_client: Annotated[Redis, Depends(get_redis_client)],
-) -> None:
-    key = _rate_limit_redis_key(current_user.id)
-    retry_after = await get_retry_after(
-        redis_client, [key], settings.SENSITIVE_RATE_LIMIT_MAX_ATTEMPTS
-    )
-    if retry_after is not None:
-        raise TooManyRequestsError(
-            "Trop de tentatives, veuillez réessayer plus tard.",
-            headers={"Retry-After": str(retry_after)},
-        )
-
-
 # Type alias pour injection propre et lisible (standard Python moderne)
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
-SensitiveActionRateLimitDep = Annotated[None, Depends(check_sensitive_action_rate_limit)]
 
 
 @router.post(
@@ -167,7 +151,7 @@ async def update_user(
 async def update_email(
     service: UserServiceDep,
     auth_service: AuthServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: UserSelfEmailUpdate,
@@ -177,11 +161,8 @@ async def update_email(
             current_user=current_user,
             data=data,
         )
-    except ForbiddenError:
-        key = _rate_limit_redis_key(current_user.id)
-        await increment_rate_limit(
-            redis_client, [key], settings.SENSITIVE_RATE_LIMIT_WINDOW_MINUTES
-        )
+    except InvalidPasswordError:
+        await record_sensitive_action_failure(redis_client, current_user.id)
         raise
 
     await auth_service.revoke_session(current_user)
@@ -200,7 +181,7 @@ async def update_email(
 async def update_password(
     service: UserServiceDep,
     auth_service: AuthServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: UserPasswordUpdate,
@@ -210,11 +191,8 @@ async def update_password(
             current_user=current_user,
             data=data,
         )
-    except ForbiddenError:
-        key = _rate_limit_redis_key(current_user.id)
-        await increment_rate_limit(
-            redis_client, [key], settings.SENSITIVE_RATE_LIMIT_WINDOW_MINUTES
-        )
+    except InvalidPasswordError:
+        await record_sensitive_action_failure(redis_client, current_user.id)
         raise
 
     await auth_service.revoke_session(current_user)

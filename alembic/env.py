@@ -10,6 +10,7 @@ from src.core.config import settings
 from src.core.database import Base
 
 # IMPORTANT : On importe tous nos modèles pour qu'Alembic puisse les détecter
+from src.modules.api_tokens.models import ApiToken  # noqa: F401
 from src.modules.categories.models import Category  # noqa: F401
 from src.modules.jobs.models import Job  # noqa: F401
 from src.modules.todos.models import Todo  # noqa: F401

@@ -43,3 +43,7 @@ class TooManyRequestsError(AppBaseError):
     """Too many requests error."""
 
     status_code = 429
+
+
+class InvalidPasswordError(ForbiddenError):
+    """Invalid password error."""
