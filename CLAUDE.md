@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results.
+FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results. A separate MCP server (`mcp_server/`) lets an agent use the API.
 
 Language conventions, all deliberate:
 
@@ -25,6 +25,8 @@ uv run uvicorn src.main:app --reload    # API on the host, against the compose P
 uv run taskiq worker src.core.broker:broker --fs-discover --reload   # job worker (queue:work)
 uv run taskiq scheduler src.core.broker:scheduler --fs-discover      # scheduler, ONE instance only
 
+uv run --env-file .env.mcp python -m mcp_server   # MCP server over stdio — normally launched by Claude Code from .mcp.json
+
 uv run pytest                                  # full suite
 uv run pytest tests/unit/                      # unit tests only
 uv run pytest tests/test_todos.py::test_name   # one test
@@ -38,6 +40,8 @@ uv run alembic upgrade head
 ### Environment
 
 `.env` targets a host-run API (`POSTGRES_HOST=localhost`, `REDIS_URL=redis://localhost:6379/0`). `docker-compose.yml` overrides `DATABASE_URL` and `REDIS_URL` so they point at the `db`/`redis` service names — a new connection setting needs both places. `api`, `worker` and `scheduler` share one `x-app` YAML anchor and differ only by `command`/`ports`.
+
+The MCP server's dependencies (`mcp`, `httpx`) live in a separate `mcp` dependency group, installed by default (`[tool.uv] default-groups`) so tests and CI get it, and excluded from the Docker image (`--no-group mcp`). Its token sits in `.env.mcp` (gitignored, copied from `.env.mcp.example`), loaded by `uv run --env-file`.
 
 `Settings` refuses to start if `JWT_SECRET_KEY` is shorter than 32 bytes or starts with `change-me`, which is exactly what `.env.example` ships. A fresh `cp .env.example .env` therefore crashes at import time until a real secret is set (`openssl rand -hex 32`). Anything that imports `src.core.config` needs the variable, including Alembic — which is why the CI `migrations` job sets it.
 
@@ -165,14 +169,14 @@ Rules, all deliberate:
 - **An absolute session lifetime independent of activity.** Rotation alone would let a session renew itself forever as long as the user stays active. `session_start` closes that: checked right after the token lookup and before the DB call, it rejects with the same 401 once it's gone, regardless of how valid the presented token otherwise is.
 - **No reuse detection.** Replaying a rotated token just returns 401; it does not revoke the current one.
 - `/refresh` re-checks that the user still exists and is active, and returns the same 401 message for every failure.
-- `/logout` requires a valid access token and deletes all three keys.
+- `/logout` requires a login session (an API token gets a 403, see below) and deletes all three keys.
 - **Changing your password revokes the session too.** `PATCH /users/me/password` calls `revoke_session`, once the password update succeeds.
 - SHA-256 rather than Argon2 because the token is high-entropy and must be looked up by its hash. `hash_redis_key` (MD5) is a different thing: it only shortens cache keys and has no security role.
 
 **API tokens** (`src/modules/api_tokens/`) — personal, long-lived tokens for agents, sent in the same `Authorization: Bearer` header. `tda_` + `secrets.token_urlsafe(32)`; only the SHA-256 is stored, and the plain value is returned once, by `POST /api-tokens` (`ApiTokenCreatedResponse` is the only schema with a `token` field — the router builds it from the row plus the plain value, which no row holds).
 
 - **`get_current_user` dispatches on the prefix.** An API token must exist and not be expired (checked in SQL: SQLite returns timestamps without a timezone, so Python comparisons would fail in tests), and its owner must be active (401) and **not an admin (403)** — including an owner promoted after creating the token. A token never acts as an admin.
-- **`SessionUserDep` refuses an API token** (403) on `POST /api-tokens`, `PATCH /users/me/email` and `/me/password`: an agent can't mint tokens or manage the account. It doesn't *require* a JWT, it rejects the `tda_` prefix — the auth fixtures override `get_current_user` and send no header.
+- **`SessionUserDep` refuses an API token** (403) on `POST /api-tokens`, `PATCH /users/me/email`, `/me/password`, `PATCH /users/{id}` and `POST /logout`: an agent can't mint tokens, manage the account, or log the human out. It doesn't *require* a JWT, it rejects the `tda_` prefix — the auth fixtures override `get_current_user` and send no header.
 - **Creation** refuses admins, then checks the current password (`InvalidPasswordError`, counted in the sensitive-action limit), then caps active tokens at `API_TOKEN_MAX_ACTIVE` (409). The user's row is locked first (`UserRepository.lock`, `SELECT ... FOR UPDATE`) so concurrent creations can't exceed the cap; SQLite ignores `FOR UPDATE`, so a unit test only checks the lock comes before the count.
 - **`last_used_at`** is written at most once an hour, by a conditional `UPDATE`.
 - Revoking deletes the row. A password change keeps the tokens unless `revoke_api_tokens: true`. `api_tokens:prune_expired` (Sunday 05:00 UTC) deletes tokens expired for more than `API_TOKEN_EXPIRED_RETENTION_DAYS`; never-expiring ones are never pruned.
@@ -224,6 +228,8 @@ Dependencies between the two modules point one way, `categories → todos` at th
 
 So `categories/schemas.py` must never import from `todos/schemas.py`, and `todos/router.py` must never import from `categories/router.py`.
 
+Changing only a todo's categories writes to `todos_categories` alone, so `onupdate` never fires on `todos.updated_at`: `TodoRepository.update` sets `updated_at = func.now()` explicitly whenever categories are passed.
+
 ### Optional includes and pagination
 
 `GET /todos/{id}` takes an `include` query param and declares `response_model=TodoResponse | TodoDetailResponse`; the handler builds the right one explicitly with `.model_validate(...)`. The repository method takes a matching `with_<relation>: bool = False` flag that adds a `selectinload`.
@@ -242,7 +248,7 @@ Three independent limits, all fixed-window counters in Redis, all answering 429 
 
 - **The TTL is set with `EXPIRE ... NX` after every `INCR`**, not only when the counter is created: if setting it ever failed once, the next increment sets it, instead of leaving a counter that never expires and blocks forever.
 - **`Retry-After` is the blocking counter's remaining TTL**, in seconds (`seconds_until_reset`, never below 1). The middleware sets it on its own `JSONResponse`; the login and sensitive-action dependencies pass it through `TooManyRequestsError(..., headers=...)`, which the `AppBaseError` handler in `main.py` copies onto the response. Any other exception can carry headers the same way.
-- **The login and sensitive-action limits live in the router, not the service.** A dependency (`RateLimitLoginDep`, `SensitiveActionRateLimitDep`) checks the counter before the handler runs; the handler catches the service's exception (`UnauthorizedError` / `ForbiddenError`), increments, and re-raises. Services stay unaware of rate limiting. A new limited action follows the same shape.
+- **The login and sensitive-action limits live in the router, not the service.** A dependency (`RateLimitLoginDep`, `SensitiveActionRateLimitDep`) checks the counter before the handler runs; the handler catches the service's exception (`UnauthorizedError` / `InvalidPasswordError`), increments, and re-raises. Services stay unaware of rate limiting. A new limited action follows the same shape.
 - **Only failures count** on login and sensitive actions, so a legitimate user isn't throttled by succeeding. A successful login does **not** reset the login counters.
 - **The general limit is a middleware**, because it covers every route. It reads the user ID from the JWT signature with no database call; an invalid or expired token falls back to the IP instead of failing. It returns its 429 as a `JSONResponse` itself rather than raising `TooManyRequestsError`.
 - **An API token is looked up, never trusted** (`_request_user_id` in `main.py`, `ApiTokenRepository.get_usable_owner_id`): one query applying the same rules as `get_current_user`, so an unknown, expired, admin-owned or deactivated token counts by IP. Counting per token hash without a lookup would hand every random `tda_` value a fresh bucket. The result is computed once per request and kept in `request.state` for the idempotency middleware; if the lookup fails, the request goes on counted by IP.
@@ -292,6 +298,18 @@ jobs: task_id (Taskiq id, exposed) · owner_id (NULL for scheduled runs) · task
 - **`GET /jobs`, `GET /jobs/{task_id}`**: a user sees their own jobs, an admin every job including ownerless runs; someone else's job is a 404. The internal `id` is never exposed.
 - **`maintenance:prune_old_jobs`** (Sunday 04:00 UTC) deletes rows **created** more than `JOB_RETENTION_DAYS` ago whatever their status, which also clears runs stuck `pending`/`running`.
 - `MaintenanceService` reaches todos/categories through their repositories (plain SQL, no rule of theirs applies) but jobs only through `JobService`, which owns `task_id` generation — never `job_service.repository`.
+
+### MCP server
+
+`mcp_server/` (top level, outside `src/`) exposes the API to an agent as MCP tools, over stdio. It is **a plain HTTP client of the API** with a personal API token and **never imports `src/`**: an agent must go through the same permissions, rate limits and idempotency as any client. The `mcp` SDK is 2.x, where `FastMCP` is renamed `MCPServer`.
+
+- `config.py`: `TODO_API_URL`, `TODO_API_TOKEN` (`SecretStr`, refused at startup unless it starts with `tda_`, a constant duplicated from `security.py` since `src/` can't be imported), read from the environment only. Never instantiated at import: `__main__.py` builds it.
+- `api_client.py`: adds the token to every request; any API error becomes a `ToolError` `"API error <status>: <detail>"` (a 422 detail list is flattened to `field.path: message`), an unreachable API `"API unreachable (<exception>)"`.
+- `server.py`: `build_mcp_server(api)`, tools defined inside it so they close over `api` (tests pass a client on `ASGITransport`).
+- **Tool names, docstrings and `Field` descriptions are the agent's interface**, in English. Their constraints mirror the API schemas (`max_length`...) and must follow them.
+- 8 tools, **no delete**: deletion is irreversible for the user and is left for the human-approval gate. The create tools require an `idempotency_key` (the API requires one with an API token) that the agent reuses on retry. `update_todo` never touches completion — that's `complete_todo` — and clears the description through `clear_description: bool`, because an agent can't reliably send an empty string; `None` means "leave unchanged".
+- Stdout is the protocol channel: nothing in `mcp_server/` may `print`.
+- `tests/test_mcp_server.py` calls the tools against the app through `Client(server)`. Each test opens its own `Client`; a shared async fixture breaks it under pytest-asyncio.
 
 ### Logging and request IDs
 

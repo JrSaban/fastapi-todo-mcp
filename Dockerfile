@@ -19,13 +19,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY pyproject.toml uv.lock ./
 
 # 2. On installe les dépendances (si le code change mais pas les dépendances, Docker réutilise le cache)
-RUN uv sync --frozen --no-install-project
+RUN uv sync --frozen --no-install-project --no-group mcp
 
 # 3. On copie le reste du projet
 COPY . .
 
 # 4. On finalise la synchronisation du projet
-RUN uv sync --frozen
+RUN uv sync --frozen --no-group mcp
 
 # Port d'écoute de l'application
 EXPOSE 8000

@@ -210,6 +210,6 @@ async def refresh(
 )
 async def logout(
     service: AuthServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
 ) -> None:
     return await service.logout(current_user)

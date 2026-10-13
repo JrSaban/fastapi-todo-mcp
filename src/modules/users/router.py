@@ -133,7 +133,7 @@ async def get_user(
 )
 async def update_user(
     service: UserServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     user_id: int,
     data: UserUpdate,
 ) -> User:

@@ -1,5 +1,7 @@
 """Tests d'intégration des endpoints Todos."""
 
+from datetime import UTC, datetime, timedelta
+
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -464,6 +466,29 @@ async def test_update_todo_clears_categories_with_empty_list(
 
     detail = await authenticated_client.get(f"/api/v1/todos/{todo.json()['id']}?include=categories")
     assert detail.json()["categories"] == []
+
+
+async def test_changing_only_the_categories_bumps_updated_at(
+    authenticated_client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """Categories are part of the todo: changing only them is a modification of the todo,
+    even though it writes to todos_categories alone and never to the todos row by itself."""
+    todo = await TodoRepository(db_session).create(current_user.id, TodoCreate(title="Tâche"), [])
+    todo.updated_at = datetime.now(UTC) - timedelta(days=1)
+    await db_session.flush()
+    before = (await authenticated_client.get(f"/api/v1/todos/{todo.id}")).json()["updated_at"]
+
+    response = await authenticated_client.patch(
+        f"/api/v1/todos/{todo.id}", json={"category_ids": []}
+    )
+
+    assert _as_utc(response.json()["updated_at"]) > _as_utc(before)
+
+
+def _as_utc(value: str) -> datetime:
+    """SQLite gives timestamps back without a timezone; they are UTC."""
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 async def test_update_todo_omits_category_ids_keeps_existing(

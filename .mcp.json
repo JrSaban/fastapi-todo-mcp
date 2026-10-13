@@ -1,0 +1,16 @@
+{
+    "mcpServers": {
+        "todo-api": {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+                "run",
+                "--env-file",
+                ".env.mcp",
+                "python",
+                "-m",
+                "mcp_server"
+            ]
+        }
+    }
+}
