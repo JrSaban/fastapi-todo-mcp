@@ -126,8 +126,7 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
             str | None,
             Field(
                 max_length=1000,
-                description="Optional longer description. Max 1000 characters. "
-                "Pass an empty string to remove the description.",
+                description="Optional longer description. Max 1000 characters.",
             ),
         ] = None,
         category_ids: Annotated[
@@ -138,8 +137,20 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
                 "Pass an empty list to remove all categories.",
             ),
         ] = None,
+        clear_description: Annotated[
+            bool,
+            Field(
+                description="Set to true to remove the todo's description. "
+                "Don't combine with description."
+            ),
+        ] = False,
     ) -> dict:
         """Update a specific todo for the current user."""
+        if clear_description:
+            if description is not None:
+                raise ToolError("Give either description or clear_description, not both.")
+            description = ""
+
         body = {
             "title": title,
             "description": description,
