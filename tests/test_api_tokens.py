@@ -191,6 +191,32 @@ async def test_an_api_token_cannot_create_tokens(
     assert response.status_code == 403
 
 
+async def test_an_api_token_cannot_revoke_tokens(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """An agent can't revoke its owner's other tokens (or its own): revoking needs a real
+    login session, like creating."""
+    _, plain = await _issue_token(db_session, current_user.id)
+    other, _ = await _issue_token(db_session, current_user.id)
+
+    response = await client.delete(f"{TOKENS_PATH}/{other.id}", headers=_bearer(plain))
+
+    assert response.status_code == 403
+    assert await ApiTokenRepository(db_session).get_by_id(other.id) is not None
+
+
+async def test_an_api_token_can_list_tokens(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """Listing stays open to a token: it shows names and dates, never a token's value."""
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.get(TOKENS_PATH, headers=_bearer(plain))
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
 # --- GET /api-tokens and DELETE /api-tokens/{id} ---
 
 
