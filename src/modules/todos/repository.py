@@ -80,6 +80,7 @@ class TodoRepository(SoftDeleteRepository[Todo]):
 
         if categories is not None:
             todo.categories = list(categories)
+            todo.updated_at = func.now()
 
         self.session.add(todo)
         await self.session.flush()
