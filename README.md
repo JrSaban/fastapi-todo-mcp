@@ -21,7 +21,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 
 ## Features
 
-- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update and complete todos and categories through 8 tools, with no delete tool. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
+- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete and delete todos, and list, read and create categories, through 9 tools — one todo at a time, never in bulk. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
 - **Personal API tokens** — long-lived, revocable tokens for agents (up to 5 active per user, 30 days, 90 days or no expiry), shown once at creation and stored hashed; they can't manage the account or act as an admin
 - **Role-based access control** — regular users vs. admins, with dedicated endpoints to promote/demote or (de)activate accounts (protected against locking out the last remaining admin)
