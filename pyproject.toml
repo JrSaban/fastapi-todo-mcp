@@ -30,6 +30,10 @@ dev = [
     "rich>=15.0.0",
     "ruff>=0.16.4",
 ]
+mcp = [
+    "httpx>=0.28.1",
+    "mcp>=2.3.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
