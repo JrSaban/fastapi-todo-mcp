@@ -1,5 +1,7 @@
 """Client HTTP pour interagir avec l'API Todo."""
 
+from typing import Any
+
 import httpx
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -39,7 +41,7 @@ class TodoApiClient:
         params: dict | None = None,
         json: dict | None = None,
         idempotency_key: str | None = None,
-    ) -> dict | list | None:
+    ) -> Any:
         """Send a request to the Todo API and return the response."""
         headers = {}
         if idempotency_key is not None:
