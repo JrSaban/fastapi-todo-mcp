@@ -83,7 +83,7 @@ async def list_api_tokens(
 )
 async def delete_api_token(
     service: ApiTokenServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     token_id: int,
 ) -> None:
     await service.revoke_token(current_user, token_id)
