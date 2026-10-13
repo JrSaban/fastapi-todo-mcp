@@ -5,7 +5,7 @@ Chaque outil est un simple appel HTTP à l'API, avec le jeton d'API de l'utilisa
 n'importe jamais `src/`, pour que l'agent passe par les mêmes règles que tout client (permissions,
 rate limiting, idempotence). Les noms, docstrings et descriptions des paramètres sont en anglais :
 c'est ce que l'agent lit pour choisir un outil et le remplir. Suppression d'un todo à la fois
-uniquement : une action en masse passera par une validation humaine
+uniquement : une action en masse passera par une validation humaine.
 """
 
 from collections.abc import AsyncGenerator
@@ -234,11 +234,7 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
         todo_id: Annotated[int, Field(description="The ID of the todo to delete.")],
     ) -> dict:
         """Delete a specific todo for the current user."""
-        response = await api.request("DELETE", f"/todos/{todo_id}")
-
-        if response.status_code == 204:
-            return {"deleted_todo_id": todo_id}
-
-        raise ToolError(f"Failed to delete todo with ID {todo_id}")
+        await api.request("DELETE", f"/todos/{todo_id}")
+        return {"deleted_todo_id": todo_id}
 
     return server
