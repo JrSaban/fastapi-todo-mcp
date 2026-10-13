@@ -179,7 +179,8 @@ async def test_update_todo_clears_the_description_with_a_flag(
     server: MCPServer, db_session: AsyncSession, current_user: User
 ) -> None:
     """An agent can't reliably send an empty string as a text argument, so removing the
-    description is an explicit boolean rather than `description=""`."""
+    description is an explicit boolean rather than `description=""`. The description ends up
+    null, exactly like a todo created without one."""
     todo = await TodoRepository(db_session).create(
         current_user.id, TodoCreate(title="Keep", description="Old note"), []
     )
@@ -188,7 +189,7 @@ async def test_update_todo_clears_the_description_with_a_flag(
     async with Client(server) as mcp:
         result = await _call(mcp, "update_todo", {"todo_id": todo.id, "clear_description": True})
 
-    assert result["description"] == ""
+    assert result["description"] is None
     assert result["title"] == "Keep"
 
 
