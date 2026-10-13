@@ -4,7 +4,8 @@ Serveur MCP : les outils qu'un agent IA peut appeler sur l'API Todo.
 Chaque outil est un simple appel HTTP à l'API, avec le jeton d'API de l'utilisateur : le serveur
 n'importe jamais `src/`, pour que l'agent passe par les mêmes règles que tout client (permissions,
 rate limiting, idempotence). Les noms, docstrings et descriptions des paramètres sont en anglais :
-c'est ce que l'agent lit pour choisir un outil et le remplir. Pas d'outil de suppression.
+c'est ce que l'agent lit pour choisir un outil et le remplir. Suppression d'un todo à la fois
+uniquement : une action en masse passera par une validation humaine
 """
 
 from collections.abc import AsyncGenerator
