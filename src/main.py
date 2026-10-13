@@ -2,15 +2,18 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import jwt
 import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 
 from src.core.broker import broker
 from src.core.config import settings
+from src.core.database import async_session_factory
 from src.core.exceptions import (
     AppBaseError,
 )
@@ -25,7 +28,8 @@ from src.core.idempotency import (
 from src.core.logging import setup_logging
 from src.core.rate_limit import increment_rate_limit, seconds_until_reset
 from src.core.redis import get_redis_client
-from src.core.security import decode_access_token
+from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
+from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.router import router as api_tokens_router
 from src.modules.auth.router import router as auth_router
 from src.modules.categories.router import router as categories_router
@@ -84,24 +88,57 @@ def _get_request_id(request: Request) -> str:
     return str(uuid.uuid4())
 
 
-def _rate_limit_identity(request: Request) -> str:
+async def _rate_limit_identity(request: Request) -> str:
     """User id from a valid access token, else the client IP."""
-    if user_id := _user_id_from_token(request):
+    if user_id := await _request_user_id(request):
         return f"user:{user_id}"
     return f"ip:{request.client.host if request.client else 'unknown'}"
 
 
-def _user_id_from_token(request: Request) -> str | None:
+def _user_id_from_access_token(token: str) -> str | None:
     """Extract user ID from access token."""
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        try:
-            payload = decode_access_token(auth_header.removeprefix("Bearer "))
-        except jwt.PyJWTError:
-            payload = {}
-        if user_id := payload.get("sub"):
-            return user_id
+    try:
+        payload = decode_access_token(token)
+    except jwt.PyJWTError:
+        payload = {}
+    if user_id := payload.get("sub"):
+        return user_id
+
     return None
+
+
+async def _user_id_from_api_token(token: str) -> str | None:
+    """Extract user ID from API token."""
+    try:
+        async with async_session_factory() as session:
+            owner_id = await ApiTokenRepository(session).get_usable_owner_id(
+                token_hash=hash_token(token),
+                now=datetime.now(UTC),
+            )
+    except (SQLAlchemyError, OSError):
+        logger.warning("database_unavailable", operation="api_token_identity", exc_info=True)
+        return None
+
+    return str(owner_id) if owner_id is not None else None
+
+
+async def _request_user_id(request: Request) -> str | None:
+    """Extract user ID from the request."""
+    if hasattr(request.state, "user_id"):
+        return request.state.user_id
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.removeprefix("Bearer ")
+    if token.startswith(API_TOKEN_PREFIX):
+        user_id = await _user_id_from_api_token(token)
+    else:
+        user_id = _user_id_from_access_token(token)
+
+    request.state.user_id = user_id
+    return user_id
 
 
 def _has_to_check_idempotency(request: Request) -> bool:
@@ -125,7 +162,7 @@ async def idempotency(request: Request, call_next):
     if not _has_to_check_idempotency(request):
         return await call_next(request)
 
-    if not (user_id := _user_id_from_token(request)):
+    if not (user_id := await _request_user_id(request)):
         return await call_next(request)
 
     if not (idempotency_key := _get_idempotency_key(request)):
@@ -226,7 +263,8 @@ async def rate_limit(request: Request, call_next):
     if request.url.path == "/health":
         return await call_next(request)
 
-    key = f"rate_limit:general:{_rate_limit_identity(request)}"
+    identity = await _rate_limit_identity(request)
+    key = f"rate_limit:general:{identity}"
 
     try:
         attempts = await increment_rate_limit(

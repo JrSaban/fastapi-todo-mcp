@@ -59,3 +59,16 @@ class ApiTokenService:
             raise NotFoundError("Token introuvable.")
 
         await self.repository.delete(token)
+
+    async def revoke_all(self, current_user: User) -> int:
+        """Revoke all API tokens for the current user."""
+        return await self.repository.delete_all_for_owner(current_user.id)
+
+    async def prune_expired(self) -> dict[str, int]:
+        """Prune expired API tokens."""
+        cutoff_date = datetime.now(UTC) - timedelta(days=settings.API_TOKEN_EXPIRED_RETENTION_DAYS)
+        tokens_deleted = await self.repository.delete_expired_before(cutoff_date)
+
+        return {
+            "api_tokens": tokens_deleted,
+        }

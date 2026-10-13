@@ -9,6 +9,7 @@ from src.core.database import DbSessionDep
 from src.core.exceptions import InvalidPasswordError
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
+from src.modules.api_tokens.router import ApiTokenServiceDep
 from src.modules.auth.router import (
     AuthServiceDep,
     CurrentUserDep,
@@ -176,11 +177,13 @@ async def update_email(
     description="""
         Changer le mot de passe de l'utilisateur connecté.
         Toutes les sessions de l'utilisateur seront révoquées.
+        Les tokens API ne sont pas révoqués par défaut, mais l'utilisateur peut le demander.
     """,
 )
 async def update_password(
     service: UserServiceDep,
     auth_service: AuthServiceDep,
+    api_token_service: ApiTokenServiceDep,
     current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
@@ -194,6 +197,9 @@ async def update_password(
     except InvalidPasswordError:
         await record_sensitive_action_failure(redis_client, current_user.id)
         raise
+
+    if data.revoke_api_tokens:
+        await api_token_service.revoke_all(current_user)
 
     await auth_service.revoke_session(current_user)
     return user
