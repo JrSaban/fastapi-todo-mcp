@@ -312,19 +312,24 @@ async def test_token_of_an_admin_is_refused(
                 "confirm_new_password": "new_password",
             },
         ),
+        ("PATCH", "/api/v1/users/{user_id}", {"first_name": "Agent"}),
+        ("POST", "/api/v1/logout", None),
     ],
 )
 async def test_account_management_refuses_api_tokens(
     client: AsyncClient,
     db_session: AsyncSession,
     current_user: User,
-    route: tuple[str, str, dict[str, str]],
+    route: tuple[str, str, dict[str, str] | None],
 ) -> None:
-    """Changing the email or password needs a real login session, even with the right password."""
+    """Managing the account needs a real login session, even with the right password: an agent
+    can't change the email, the password or the profile, nor log the human out."""
     method, path, body = route
     _, plain = await _issue_token(db_session, current_user.id)
 
-    response = await client.request(method, path, json=body, headers=_bearer(plain))
+    response = await client.request(
+        method, path.format(user_id=current_user.id), json=body, headers=_bearer(plain)
+    )
 
     assert response.status_code == 403
 
