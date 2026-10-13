@@ -129,25 +129,24 @@ async def _request_user_id(request: Request) -> str | None:
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
+        request.state.auth_method = None
         return None
 
     token = auth_header.removeprefix("Bearer ")
     if token.startswith(API_TOKEN_PREFIX):
+        request.state.auth_method = "api_token"
         user_id = await _user_id_from_api_token(token)
     else:
+        request.state.auth_method = "access_token"
         user_id = _user_id_from_access_token(token)
 
     request.state.user_id = user_id
     return user_id
 
 
-def _has_to_check_idempotency(request: Request) -> bool:
-    """Check if the request has to be checked for idempotency."""
-    return (
-        request.method == "POST"
-        and request.url.path in IDEMPOTENT_ROUTES
-        and request.headers.get("Idempotency-Key") is not None
-    )
+def _is_idempotent_route(request: Request) -> bool:
+    """Whether the route accepts an Idempotency-Key."""
+    return request.method == "POST" and request.url.path in IDEMPOTENT_ROUTES
 
 
 def _get_idempotency_key(request: Request) -> str | None:
@@ -159,10 +158,19 @@ def _get_idempotency_key(request: Request) -> str | None:
 @app.middleware("http")
 async def idempotency(request: Request, call_next):
     """Middleware for idempotency for idempotent requests."""
-    if not _has_to_check_idempotency(request):
+    if not _is_idempotent_route(request):
         return await call_next(request)
 
     if not (user_id := await _request_user_id(request)):
+        return await call_next(request)
+
+    if request.headers.get("Idempotency-Key") is None:
+        if request.state.auth_method == "api_token":
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "La clé d'idempotence est obligatoire avec un token API."},
+            )
+
         return await call_next(request)
 
     if not (idempotency_key := _get_idempotency_key(request)):

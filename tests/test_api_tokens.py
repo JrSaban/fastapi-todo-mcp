@@ -10,7 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.core.security import API_TOKEN_PREFIX, generate_api_token, hash_token
+from src.core.security import (
+    API_TOKEN_PREFIX,
+    create_access_token,
+    generate_api_token,
+    hash_token,
+)
 from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.tasks import prune_expired_api_tokens
@@ -21,6 +26,7 @@ from src.modules.users.repository import UserRepository
 TOKENS_PATH = "/api/v1/api-tokens"
 ME_PATH = "/api/v1/users/me"
 TODOS_PATH = "/api/v1/todos"
+CATEGORIES_PATH = "/api/v1/categories"
 IP_KEY = "rate_limit:general:ip:127.0.0.1"
 PASSWORD = "secret123"  # the current_user / current_admin_user fixtures' password
 
@@ -458,6 +464,57 @@ async def test_identity_is_looked_up_once_per_request(
     )
 
     assert lookup.await_count == 1
+
+
+@pytest.mark.parametrize(
+    ("path", "body"), [(TODOS_PATH, {"title": "No key"}), (CATEGORIES_PATH, {"name": "No key"})]
+)
+async def test_api_token_create_without_idempotency_key_returns_400(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    path: str,
+    body: dict[str, str],
+) -> None:
+    """An agent must send an Idempotency-Key on the idempotent routes, so a blind retry
+    can never create a duplicate."""
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(path, json=body, headers=_bearer(plain))
+
+    assert response.status_code == 400
+
+
+async def test_access_token_create_without_idempotency_key_still_works(
+    client: AsyncClient, current_user: User
+) -> None:
+    """The key stays optional for a human session (JWT)."""
+    token = create_access_token({"sub": str(current_user.id)})
+
+    response = await client.post(TODOS_PATH, json={"title": "Human"}, headers=_bearer(token))
+
+    assert response.status_code == 201
+
+
+async def test_api_token_read_needs_no_idempotency_key(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """Only the idempotent POST routes require the key."""
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.get(TODOS_PATH, headers=_bearer(plain))
+
+    assert response.status_code == 200
+
+
+async def test_unknown_api_token_without_key_gets_401_not_400(client: AsyncClient) -> None:
+    """With no usable token the middleware steps aside: the route's 401 wins, the request
+    isn't told about a key it couldn't use anyway."""
+    response = await client.post(
+        TODOS_PATH, json={"title": "No key"}, headers=_bearer(generate_api_token())
+    )
+
+    assert response.status_code == 401
 
 
 # --- PATCH /users/me/password with revoke_api_tokens ---
