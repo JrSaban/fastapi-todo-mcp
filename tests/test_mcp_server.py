@@ -70,7 +70,8 @@ async def _call_error(mcp: Client, tool: str, arguments: dict[str, Any]) -> str:
 # --- the tool surface ---
 
 
-async def test_exposes_the_eight_tools_and_no_delete(server: MCPServer) -> None:
+async def test_exposes_the_nine_tools(server: MCPServer) -> None:
+    """One todo at a time can be deleted directly; there is no bulk or category deletion."""
     async with Client(server) as mcp:
         names = {tool.name for tool in (await mcp.list_tools()).tools}
 
@@ -80,6 +81,7 @@ async def test_exposes_the_eight_tools_and_no_delete(server: MCPServer) -> None:
         "create_todo",
         "update_todo",
         "complete_todo",
+        "delete_todo",
         "list_categories",
         "get_category",
         "create_category",
@@ -224,6 +226,29 @@ async def test_complete_todo(
         result = await _call(mcp, "complete_todo", {"todo_id": todo.id})
 
     assert result["is_completed"] is True
+
+
+async def test_delete_todo(server: MCPServer, db_session: AsyncSession, current_user: User) -> None:
+    """The API answers 204 with no body: the tool still confirms what it deleted."""
+    todo = await TodoRepository(db_session).create(current_user.id, TodoCreate(title="Gone"), [])
+    await db_session.commit()
+
+    async with Client(server) as mcp:
+        result = await _call(mcp, "delete_todo", {"todo_id": todo.id})
+
+    assert result == {"deleted_todo_id": todo.id}
+
+
+async def test_deleting_someone_elses_todo_is_an_api_error(
+    server: MCPServer, db_session: AsyncSession, other_user: User
+) -> None:
+    todo = await TodoRepository(db_session).create(other_user.id, TodoCreate(title="Theirs"), [])
+    await db_session.commit()
+
+    async with Client(server) as mcp:
+        message = await _call_error(mcp, "delete_todo", {"todo_id": todo.id})
+
+    assert "API error 404" in message
 
 
 async def test_invalid_arguments_are_refused_by_the_tool(server: MCPServer) -> None:
