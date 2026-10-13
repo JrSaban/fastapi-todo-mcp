@@ -146,10 +146,8 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
         ] = False,
     ) -> dict:
         """Update a specific todo for the current user."""
-        if clear_description:
-            if description is not None:
-                raise ToolError("Give either description or clear_description, not both.")
-            description = ""
+        if clear_description and description is not None:
+            raise ToolError("Give either description or clear_description, not both.")
 
         body = {
             "title": title,
@@ -157,6 +155,9 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
             "category_ids": category_ids,
         }
         body = _filter_none_values(body)
+
+        if clear_description:
+            body["description"] = None
 
         if not body:
             raise ToolError("No fields to update.")
