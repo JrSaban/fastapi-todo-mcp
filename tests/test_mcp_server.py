@@ -175,20 +175,35 @@ async def test_someone_elses_todo_reaches_the_agent_as_an_api_error(
     assert "API error 404" in message
 
 
-async def test_update_todo_can_clear_the_description(
+async def test_update_todo_clears_the_description_with_a_flag(
     server: MCPServer, db_session: AsyncSession, current_user: User
 ) -> None:
-    """None means "leave it", an empty string means "remove it"."""
+    """An agent can't reliably send an empty string as a text argument, so removing the
+    description is an explicit boolean rather than `description=""`."""
     todo = await TodoRepository(db_session).create(
         current_user.id, TodoCreate(title="Keep", description="Old note"), []
     )
     await db_session.commit()
 
     async with Client(server) as mcp:
-        result = await _call(mcp, "update_todo", {"todo_id": todo.id, "description": ""})
+        result = await _call(mcp, "update_todo", {"todo_id": todo.id, "clear_description": True})
 
     assert result["description"] == ""
     assert result["title"] == "Keep"
+
+
+async def test_update_todo_refuses_a_description_and_its_clearing_together(
+    server: MCPServer,
+) -> None:
+    """Contradictory arguments are an error, not a silent pick of one of them."""
+    async with Client(server) as mcp:
+        message = await _call_error(
+            mcp,
+            "update_todo",
+            {"todo_id": 1, "description": "New", "clear_description": True},
+        )
+
+    assert "either description or clear_description" in message
 
 
 async def test_update_todo_with_nothing_to_change_is_an_error(server: MCPServer) -> None:
