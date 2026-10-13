@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results.
+FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results. A separate MCP server (`mcp_server/`) lets an agent use the API.
 
 Language conventions, all deliberate:
 
@@ -25,6 +25,8 @@ uv run uvicorn src.main:app --reload    # API on the host, against the compose P
 uv run taskiq worker src.core.broker:broker --fs-discover --reload   # job worker (queue:work)
 uv run taskiq scheduler src.core.broker:scheduler --fs-discover      # scheduler, ONE instance only
 
+uv run --env-file .env.mcp python -m mcp_server   # MCP server over stdio — normally launched by Claude Code from .mcp.json
+
 uv run pytest                                  # full suite
 uv run pytest tests/unit/                      # unit tests only
 uv run pytest tests/test_todos.py::test_name   # one test
@@ -38,6 +40,8 @@ uv run alembic upgrade head
 ### Environment
 
 `.env` targets a host-run API (`POSTGRES_HOST=localhost`, `REDIS_URL=redis://localhost:6379/0`). `docker-compose.yml` overrides `DATABASE_URL` and `REDIS_URL` so they point at the `db`/`redis` service names — a new connection setting needs both places. `api`, `worker` and `scheduler` share one `x-app` YAML anchor and differ only by `command`/`ports`.
+
+The MCP server's dependencies (`mcp`, `httpx`) live in a separate `mcp` dependency group, installed by default (`[tool.uv] default-groups`) so tests and CI get it, and excluded from the Docker image (`--no-group mcp`). Its token sits in `.env.mcp`, gitignored, loaded by `uv run --env-file`.
 
 `Settings` refuses to start if `JWT_SECRET_KEY` is shorter than 32 bytes or starts with `change-me`, which is exactly what `.env.example` ships. A fresh `cp .env.example .env` therefore crashes at import time until a real secret is set (`openssl rand -hex 32`). Anything that imports `src.core.config` needs the variable, including Alembic — which is why the CI `migrations` job sets it.
 
@@ -224,6 +228,8 @@ Dependencies between the two modules point one way, `categories → todos` at th
 
 So `categories/schemas.py` must never import from `todos/schemas.py`, and `todos/router.py` must never import from `categories/router.py`.
 
+Changing only a todo's categories writes to `todos_categories` alone, so `onupdate` never fires on `todos.updated_at`: `TodoRepository.update` sets `updated_at = func.now()` explicitly whenever categories are passed.
+
 ### Optional includes and pagination
 
 `GET /todos/{id}` takes an `include` query param and declares `response_model=TodoResponse | TodoDetailResponse`; the handler builds the right one explicitly with `.model_validate(...)`. The repository method takes a matching `with_<relation>: bool = False` flag that adds a `selectinload`.
@@ -292,6 +298,18 @@ jobs: task_id (Taskiq id, exposed) · owner_id (NULL for scheduled runs) · task
 - **`GET /jobs`, `GET /jobs/{task_id}`**: a user sees their own jobs, an admin every job including ownerless runs; someone else's job is a 404. The internal `id` is never exposed.
 - **`maintenance:prune_old_jobs`** (Sunday 04:00 UTC) deletes rows **created** more than `JOB_RETENTION_DAYS` ago whatever their status, which also clears runs stuck `pending`/`running`.
 - `MaintenanceService` reaches todos/categories through their repositories (plain SQL, no rule of theirs applies) but jobs only through `JobService`, which owns `task_id` generation — never `job_service.repository`.
+
+### MCP server
+
+`mcp_server/` (top level, outside `src/`) exposes the API to an agent as MCP tools, over stdio. It is **a plain HTTP client of the API** with a personal API token and **never imports `src/`**: an agent must go through the same permissions, rate limits and idempotency as any client. The `mcp` SDK is 2.x, where `FastMCP` is renamed `MCPServer`.
+
+- `config.py`: `TODO_API_URL`, `TODO_API_TOKEN` (`SecretStr`, refused at startup unless it starts with `tda_`, a constant duplicated from `security.py` since `src/` can't be imported), read from the environment only. Never instantiated at import: `__main__.py` builds it.
+- `api_client.py`: adds the token to every request; any API error becomes a `ToolError` `"API error <status>: <detail>"` (a 422 detail list is flattened to `field.path: message`), an unreachable API `"API unreachable (<exception>)"`.
+- `server.py`: `build_mcp_server(api)`, tools defined inside it so they close over `api` (tests pass a client on `ASGITransport`).
+- **Tool names, docstrings and `Field` descriptions are the agent's interface**, in English. Their constraints mirror the API schemas (`max_length`...) and must follow them.
+- 8 tools, **no delete**: deletion is irreversible for the user and is left for the human-approval gate. The create tools require an `idempotency_key` (the API requires one with an API token) that the agent reuses on retry. `update_todo` never touches completion — that's `complete_todo` — and clears the description through `clear_description: bool`, because an agent can't reliably send an empty string; `None` means "leave unchanged".
+- Stdout is the protocol channel: nothing in `mcp_server/` may `print`.
+- `tests/test_mcp_server.py` calls the tools against the app through `Client(server)`. Each test opens its own `Client`: its task group must be exited in the task that entered it, which an async `yield` fixture doesn't guarantee under pytest-asyncio.
 
 ### Logging and request IDs
 

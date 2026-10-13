@@ -11,6 +11,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **SQLAlchemy 2.0** (async) + **Alembic** — ORM and migrations
 - **PostgreSQL** · **Redis** (cache, refresh tokens, rate-limit counters, idempotency keys, job queue)
 - **Taskiq** — async background jobs and scheduling (worker + scheduler processes)
+- **MCP Python SDK** — the MCP server that lets an AI agent use the API
 - **Pydantic v2** — request/response validation and serialization
 - **argon2-cffi** — password hashing · **PyJWT** — access tokens
 - **structlog** — JSON logs with a request ID on every line
@@ -20,6 +21,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 
 ## Features
 
+- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update and complete todos and categories through 8 tools, with no delete tool. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
 - **Personal API tokens** — long-lived, revocable tokens for agents (up to 5 active per user, 30 days, 90 days or no expiry), shown once at creation and stored hashed; they can't manage the account or act as an admin
 - **Role-based access control** — regular users vs. admins, with dedicated endpoints to promote/demote or (de)activate accounts (protected against locking out the last remaining admin)
@@ -44,6 +46,7 @@ A few decisions worth a second look if you're skimming the code:
 - **Login takes the same time whether the email exists or not.** An unknown email still runs a full Argon2 verification, against a dummy hash computed once at startup, instead of short-circuiting — otherwise the response time alone would reveal which emails are registered, even behind an identical error message.
 - **Rate limits that only punish failures.** Login attempts are counted per IP *and* per email, so neither rotating emails from one machine nor spreading guesses across machines gets around the limit — and only failed attempts count, so a legitimate user is never throttled for logging in. The services know nothing about it: limits are checked and counted at the router level.
 - **Retries that can't create duplicates, even concurrent ones.** A client that times out and retries is the classic duplicate-maker — and the retry usually arrives while the first request is still running. The idempotency key is therefore claimed atomically in Redis (`SET NX`) *before* the request runs, so a concurrent retry gets a `409` instead of running twice. Only successful responses are stored, and only once the database transaction has actually committed.
+- **An agent gets no back door.** The MCP server lives outside `src/` and never imports it: it only calls the HTTP API, with the user's API token. Everything built to protect the API — rate limits, idempotency, ownership — therefore applies to the agent too, and an API token can't act as an admin or manage the account. Retrying a creation reuses the agent's idempotency key, so a blind retry never duplicates.
 - **A cache that never takes the API down.** Paginated category lists are invalidated with a generation counter (one `INCR` instead of hunting for every cached page). Every Redis call on the cache path is allowed to fail: the request falls back to PostgreSQL and logs a warning.
 - **Generic repository layer.** `BaseRepository[ModelT: Base]` (`src/core/repository.py`) uses Python 3.12's native generic syntax (`class Foo[T]`) to share pagination, counting and typed filtering across every repository, while each resource keeps its own fully-typed filter parameters — no dynamic/untyped filter dicts. A `SoftDeleteRepository` layer adds the pruning of old soft-deleted rows to the two models that need it, and only to them.
 - **Clean Architecture, enforced consistently.** Every module follows the same `router → service → repository → models` layering; services raise framework-agnostic exceptions (`NotFoundError`, `ForbiddenError`, ...) mapped to HTTP status codes in one place, never `HTTPException` scattered through the business logic.
@@ -85,6 +88,14 @@ uv run taskiq scheduler src.core.broker:scheduler --fs-discover  # scheduled job
 ```
 
 </details>
+
+### Connecting an AI agent (MCP)
+
+The repository ships a `.mcp.json`, so Claude Code offers the `todo-api` server when opened in the project. It needs a personal API token of a **non-admin** account:
+
+1. Log in (`POST /api/v1/login`), then create a token with `POST /api/v1/api-tokens` and your current password. The token (`tda_...`) is shown only once.
+2. Put it in a `.env.mcp` file at the repository root (gitignored): `TODO_API_TOKEN=tda_...`.
+3. With the API running, open Claude Code in the project and approve the server; `/mcp` lists its tools.
 
 ## Running the tests
 
@@ -141,6 +152,7 @@ src/
 │   ├── maintenance/  # background jobs spanning several modules (weekly pruning)
 │   └── todos_categories/  # many-to-many association table
 └── main.py          # app, middlewares (idempotency, rate limit, request ID), exception handler
+mcp_server/          # MCP server for AI agents: an HTTP client of the API, never imports src/
 alembic/versions/    # migrations
 tests/               # integration tests + tests/unit/ for isolated service tests
 ```
