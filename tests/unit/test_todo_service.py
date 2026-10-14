@@ -307,6 +307,21 @@ async def test_delete_todo_as_admin_on_another_users_todo(admin_user):
     mock_todo_repo.delete.assert_called_once_with(fake_todo)
 
 
+# --- delete_completed_todos ---
+
+
+async def test_delete_completed_todos_deletes_the_users_completed_todos(regular_user: User):
+    mock_todo_repo = AsyncMock()
+    mock_todo_repo.get_completed_ids.return_value = [3, 4]
+    mock_todo_repo.delete_completed.return_value = 2
+
+    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+
+    assert await service.delete_completed_todos(current_user=regular_user) == 2
+    mock_todo_repo.get_completed_ids.assert_called_once_with(owner_id=1)
+    mock_todo_repo.delete_completed.assert_called_once_with(todo_ids=[3, 4], owner_id=1)
+
+
 # --- list_deleted_todos ---
 
 
