@@ -80,3 +80,9 @@ class DeletedTodoResponse(TodoResponse):
     """Deleted todo response."""
 
     deleted_at: datetime
+
+
+class DeleteCompletedTodosResponse(BaseModel):
+    """Deleted completed todos response."""
+
+    deleted_count: int
