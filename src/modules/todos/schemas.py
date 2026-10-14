@@ -74,3 +74,9 @@ class TodoDetailResponse(TodoResponse):
     """Représentation d'un todo avec ses catégories."""
 
     categories: list[CategoryResponse] = []
+
+
+class DeletedTodoResponse(TodoResponse):
+    """Deleted todo response."""
+
+    deleted_at: datetime
