@@ -75,4 +75,4 @@ class ApprovalRequest(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Approval id={self.id} action={self.action!r}>"
+        return f"<ApprovalRequest id={self.id} action={self.action!r}>"
