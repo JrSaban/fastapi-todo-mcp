@@ -1,4 +1,4 @@
-"""Modèles pour le domaine Approvals."""
+"""Modèles pour le domaine Approval requests."""
 
 from datetime import datetime
 from enum import StrEnum
@@ -24,12 +24,12 @@ class ApprovalStatus(StrEnum):
     APPROVED = "approved"
 
 
-class Approval(Base):
-    """Modèle SQLAlchemy pour la table 'approvals'."""
+class ApprovalRequest(Base):
+    """Modèle SQLAlchemy pour la table 'approval_requests'."""
 
     __tablename__ = "approval_requests"
 
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     action: Mapped[ApprovalAction] = mapped_column(
         Enum(
             ApprovalAction,
@@ -38,6 +38,7 @@ class Approval(Base):
             length=50,
             create_constraint=False,
         ),
+        nullable=False,
     )
     status: Mapped[ApprovalStatus] = mapped_column(
         Enum(
@@ -50,17 +51,17 @@ class Approval(Base):
         default=ApprovalStatus.PENDING,
         nullable=False,
     )
-    payload: Mapped[JsonValue] = mapped_column(JSON)
-    result: Mapped[JsonValue | None] = mapped_column(JSON)
+    payload: Mapped[JsonValue] = mapped_column(JSON, nullable=False)
+    result: Mapped[JsonValue | None] = mapped_column(JSON, nullable=True)
 
     # Timestamps automatiques gérés côté base de données
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
-        index=True,
+        nullable=False,
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -68,7 +69,7 @@ class Approval(Base):
             name="approvalstatus",
         ),
         CheckConstraint(
-            f"action IN ({', '.join(f"'{status.value}'" for status in ApprovalAction)})",
+            f"action IN ({', '.join(f"'{action.value}'" for action in ApprovalAction)})",
             name="approvalaction",
         ),
     )
