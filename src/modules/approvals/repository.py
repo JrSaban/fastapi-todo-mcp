@@ -92,6 +92,7 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
                 status=status,
                 decided_at=now,
             )
+            .execution_options(synchronize_session="fetch")
         )
         result = await self.session.execute(query)
         return cast(CursorResult, result).rowcount == 1
