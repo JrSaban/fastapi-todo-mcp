@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # API token
     API_TOKEN_MAX_ACTIVE: int = 5
 
+    # Approvals requests
+    APPROVAL_REQUEST_EXPIRE_DAYS: int = 7
+
     @field_validator("JWT_SECRET_KEY")
     @classmethod
     def validate_jwt_secret_key(cls, v: str) -> str:
