@@ -176,6 +176,42 @@ async def test_list_todos_as_admin_returns_everyone_todos(
     assert len(data["items"]) == 2
 
 
+async def test_list_todos_as_admin_filter_by_owner_id(
+    authenticated_admin: AsyncClient,
+    other_user: User,
+    db_session: AsyncSession,
+) -> None:
+    """An admin can narrow the list down to one user's todos."""
+    await TodoRepository(db_session).create(
+        owner_id=other_user.id, data=TodoCreate(title="Tâche de other_user"), categories=[]
+    )
+    await authenticated_admin.post("/api/v1/todos", json={"title": "Tâche admin"})
+
+    response = await authenticated_admin.get(f"/api/v1/todos?owner_id={other_user.id}")
+
+    data = response.json()
+    assert [todo["title"] for todo in data["items"]] == ["Tâche de other_user"]
+    assert data["total"] == 1
+
+
+async def test_list_todos_owner_id_is_ignored_for_a_regular_user(
+    authenticated_client: AsyncClient,
+    other_user: User,
+    db_session: AsyncSession,
+) -> None:
+    """A regular user asking for someone else's todos still gets their own, not a 403:
+    the filter is simply not theirs to set."""
+    await TodoRepository(db_session).create(
+        owner_id=other_user.id, data=TodoCreate(title="Tâche d'un autre"), categories=[]
+    )
+    await authenticated_client.post("/api/v1/todos", json={"title": "Ma tâche"})
+
+    response = await authenticated_client.get(f"/api/v1/todos?owner_id={other_user.id}")
+
+    assert response.status_code == 200
+    assert [todo["title"] for todo in response.json()["items"]] == ["Ma tâche"]
+
+
 async def test_list_todos_filter_by_is_completed(
     authenticated_client: AsyncClient,
 ) -> None:
@@ -638,3 +674,205 @@ async def test_patch_deleted_todo_returns_404(
 
     result = await db_session.execute(select(Todo).where(Todo.id == todo_id))
     assert result.scalar_one().title == "Tâche 1"
+
+
+# --- deleted todos ---
+
+
+async def _create_deleted_todo(
+    db_session: AsyncSession, owner_id: int, title: str, deleted_at: datetime | None = None
+) -> Todo:
+    """Create a todo and soft-delete it, optionally at a given date."""
+    repository = TodoRepository(db_session)
+    todo = await repository.create(owner_id=owner_id, data=TodoCreate(title=title), categories=[])
+    await repository.delete(todo)
+    if deleted_at is not None:
+        todo.deleted_at = deleted_at
+        await db_session.flush()
+    return todo
+
+
+async def test_list_deleted_todos_returns_only_own_deleted_todos(
+    authenticated_client: AsyncClient,
+    current_user: User,
+    other_user: User,
+    db_session: AsyncSession,
+) -> None:
+    """Neither live todos nor someone else's deleted ones appear, and `total` agrees."""
+    await _create_deleted_todo(db_session, current_user.id, "Ma tâche supprimée")
+    await _create_deleted_todo(db_session, other_user.id, "Tâche supprimée d'un autre")
+    await TodoRepository(db_session).create(
+        owner_id=current_user.id, data=TodoCreate(title="Ma tâche"), categories=[]
+    )
+
+    response = await authenticated_client.get("/api/v1/todos/deleted")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert [todo["title"] for todo in data["items"]] == ["Ma tâche supprimée"]
+    assert data["items"][0]["deleted_at"] is not None
+    assert data["total"] == 1
+
+
+async def test_list_deleted_todos_most_recently_deleted_first(
+    authenticated_client: AsyncClient, current_user: User, db_session: AsyncSession
+) -> None:
+    """Ordered by deletion date, not by creation: the last deleted is the first one to undo."""
+    now = datetime.now(UTC)
+    await _create_deleted_todo(db_session, current_user.id, "Créée puis supprimée en dernier", now)
+    await _create_deleted_todo(
+        db_session, current_user.id, "Supprimée il y a un jour", now - timedelta(days=1)
+    )
+
+    response = await authenticated_client.get("/api/v1/todos/deleted")
+
+    assert [todo["title"] for todo in response.json()["items"]] == [
+        "Créée puis supprimée en dernier",
+        "Supprimée il y a un jour",
+    ]
+
+
+async def test_list_deleted_todos_filter_by_title(
+    authenticated_client: AsyncClient, current_user: User, db_session: AsyncSession
+) -> None:
+    await _create_deleted_todo(db_session, current_user.id, "Acheter du pain")
+    await _create_deleted_todo(db_session, current_user.id, "Appeler le garage")
+
+    response = await authenticated_client.get("/api/v1/todos/deleted?title=pain")
+
+    data = response.json()
+    assert [todo["title"] for todo in data["items"]] == ["Acheter du pain"]
+    assert data["total"] == 1
+
+
+async def test_list_deleted_todos_as_admin_returns_everyone_and_filters_by_owner(
+    authenticated_admin: AsyncClient,
+    current_admin_user: User,
+    other_user: User,
+    db_session: AsyncSession,
+) -> None:
+    await _create_deleted_todo(db_session, current_admin_user.id, "Tâche admin")
+    await _create_deleted_todo(db_session, other_user.id, "Tâche de other_user")
+
+    everyone = await authenticated_admin.get("/api/v1/todos/deleted")
+    filtered = await authenticated_admin.get(f"/api/v1/todos/deleted?owner_id={other_user.id}")
+
+    assert everyone.json()["total"] == 2
+    assert [todo["title"] for todo in filtered.json()["items"]] == ["Tâche de other_user"]
+    assert filtered.json()["total"] == 1
+
+
+async def test_list_deleted_todos_is_not_read_as_a_todo_id(
+    authenticated_client: AsyncClient,
+) -> None:
+    """`/todos/deleted` is declared before `/todos/{todo_id}`: otherwise "deleted" would be
+    parsed as an ID and answer 422."""
+    response = await authenticated_client.get("/api/v1/todos/deleted")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+# --- restore ---
+
+
+async def test_restore_todo_success(
+    authenticated_client: AsyncClient, current_user: User, db_session: AsyncSession
+) -> None:
+    """A restored todo is back everywhere, and gone from the deleted list."""
+    todo = await _create_deleted_todo(db_session, current_user.id, "Tâche 1")
+
+    response = await authenticated_client.post(f"/api/v1/todos/{todo.id}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == todo.id
+    assert "deleted_at" not in response.json()
+    assert (await authenticated_client.get(f"/api/v1/todos/{todo.id}")).status_code == 200
+    assert (await authenticated_client.get("/api/v1/todos")).json()["total"] == 1
+    assert (await authenticated_client.get("/api/v1/todos/deleted")).json()["total"] == 0
+
+
+async def test_restore_todo_through_the_api_after_a_delete(
+    authenticated_client: AsyncClient,
+) -> None:
+    """The full round trip a user would make: delete, then undo."""
+    todo = await authenticated_client.post("/api/v1/todos", json={"title": "Oups"})
+    todo_id = todo.json()["id"]
+    await authenticated_client.delete(f"/api/v1/todos/{todo_id}")
+
+    response = await authenticated_client.post(f"/api/v1/todos/{todo_id}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Oups"
+
+
+async def test_restore_todo_keeps_its_categories(authenticated_client: AsyncClient) -> None:
+    """A soft delete leaves the todos_categories rows in place: restoring brings them back."""
+    category = await authenticated_client.post("/api/v1/categories", json={"name": "Sport"})
+    category_id = category.json()["id"]
+    todo = await authenticated_client.post(
+        "/api/v1/todos", json={"title": "Courir", "category_ids": [category_id]}
+    )
+    todo_id = todo.json()["id"]
+    await authenticated_client.delete(f"/api/v1/todos/{todo_id}")
+
+    await authenticated_client.post(f"/api/v1/todos/{todo_id}/restore")
+
+    detail = await authenticated_client.get(f"/api/v1/todos/{todo_id}?include=categories")
+    assert [c["id"] for c in detail.json()["categories"]] == [category_id]
+
+
+async def test_restore_todo_bumps_updated_at(
+    authenticated_client: AsyncClient, current_user: User, db_session: AsyncSession
+) -> None:
+    """The restore is a write, and `updated_at` is refreshed from the database: the response
+    carries the new value, not a stale one."""
+    todo = await _create_deleted_todo(db_session, current_user.id, "Tâche 1")
+    before = datetime.now(UTC) - timedelta(days=1)
+    todo.updated_at = before
+    await db_session.flush()
+
+    response = await authenticated_client.post(f"/api/v1/todos/{todo.id}/restore")
+
+    assert _as_utc(response.json()["updated_at"]) > before
+
+
+async def test_restore_a_todo_that_is_not_deleted_returns_404(
+    authenticated_client: AsyncClient,
+) -> None:
+    """Only a deleted todo can be restored: a live one is "not found" for this route."""
+    todo = await authenticated_client.post("/api/v1/todos", json={"title": "Tâche 1"})
+
+    response = await authenticated_client.post(f"/api/v1/todos/{todo.json()['id']}/restore")
+
+    assert response.status_code == 404
+
+
+async def test_restore_unknown_todo_returns_404(authenticated_client: AsyncClient) -> None:
+    response = await authenticated_client.post("/api/v1/todos/9999/restore")
+
+    assert response.status_code == 404
+
+
+async def test_restore_someone_elses_deleted_todo_returns_404(
+    authenticated_client: AsyncClient, other_user: User, db_session: AsyncSession
+) -> None:
+    """404, not 403, like every other route on someone else's todo — and it stays deleted."""
+    todo = await _create_deleted_todo(db_session, other_user.id, "Tâche d'un autre")
+
+    response = await authenticated_client.post(f"/api/v1/todos/{todo.id}/restore")
+
+    assert response.status_code == 404
+    result = await db_session.execute(select(Todo).where(Todo.id == todo.id))
+    assert result.scalar_one().deleted_at is not None
+
+
+async def test_restore_someone_elses_deleted_todo_as_admin_success(
+    authenticated_admin: AsyncClient, other_user: User, db_session: AsyncSession
+) -> None:
+    todo = await _create_deleted_todo(db_session, other_user.id, "Tâche de other_user")
+
+    response = await authenticated_admin.post(f"/api/v1/todos/{todo.id}/restore")
+
+    assert response.status_code == 200
+    assert response.json()["owner_id"] == other_user.id
