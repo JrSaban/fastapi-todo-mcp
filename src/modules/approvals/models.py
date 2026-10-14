@@ -51,8 +51,8 @@ class ApprovalRequest(Base):
         default=ApprovalStatus.PENDING,
         nullable=False,
     )
-    payload: Mapped[JsonValue] = mapped_column(JSON, nullable=False)
-    result: Mapped[JsonValue | None] = mapped_column(JSON, nullable=True)
+    payload: Mapped[dict[str, JsonValue]] = mapped_column(JSON, nullable=False)
+    result: Mapped[dict[str, JsonValue] | None] = mapped_column(JSON, nullable=True)
 
     # Timestamps automatiques gérés côté base de données
     created_at: Mapped[datetime] = mapped_column(
@@ -60,7 +60,9 @@ class ApprovalRequest(Base):
         server_default=func.now(),
         nullable=False,
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
