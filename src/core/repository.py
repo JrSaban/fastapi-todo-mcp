@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal, NamedTuple, cast
 
 from pydantic import BaseModel
-from sqlalchemy import CursorResult, Select, delete, select, update
+from sqlalchemy import CursorResult, Select, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -95,13 +95,11 @@ class SoftDeleteRepository[ModelT: Base](BaseRepository[ModelT]):
         result = await self.session.execute(query)
         return cast(CursorResult, result).rowcount
 
-    async def restore(self, entity: ModelT) -> None:
+    async def restore(self, entity: ModelT) -> ModelT:
         """Restore a soft-deleted entity"""
-        column = getattr(self.model, self.soft_delete_column)
-        query = (
-            update(self.model)
-            .where(self.model.id == entity.id, column.is_not(None))
-            .values(column=None)
-        )
-        await self.session.execute(query)
+        setattr(entity, self.soft_delete_column, None)
+        self.session.add(entity)
         await self.session.flush()
+        await self.session.refresh(entity)
+
+        return entity
