@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+It records this project's own decisions only. How FastAPI, SQLAlchemy, Pydantic, pytest or Python work in general stays out, even when it caused a bug here: before adding a sentence, check it wouldn't be just as true in another FastAPI project.
+
 ## Project overview
 
 FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results. A separate MCP server (`mcp_server/`) lets an agent use the API.
@@ -142,8 +144,8 @@ A deleted row behaves exactly like a missing one, for admins as well: 404 on `GE
 
 **Deleted todos can be listed and restored**, through two routes that are the only exception to the rule above. Same ownership rule as the live ones (owner, or any for an admin), through `TodoRepository.get_all_deleted`/`get_deleted_by_id` and `count(is_deleted=True)` — `_apply_filters` takes `is_deleted` so the page and its total still share their filters.
 
-- `GET /todos/deleted` (`PaginatedResponse[DeletedTodoResponse]`, which adds `deleted_at`), most recently deleted first. It is declared **before** `GET /todos/{todo_id}`, otherwise `"deleted"` is parsed as an ID and answers 422.
-- `POST /todos/{todo_id}/restore` answers 404 for a todo that is missing, someone else's, **or not deleted**. A restored todo gets its categories back: the soft delete never touched `todos_categories`.
+- `GET /todos/deleted` (`PaginatedResponse[DeletedTodoResponse]`, which adds `deleted_at`), most recently deleted first.
+- `POST /todos/{todo_id}/restore` answers 404 for a todo that is missing, someone else's, **or not deleted**.
 - Categories have no restore: the name of a deleted one may have been reused since (the unique index is partial).
 
 A todo can be restored until the weekly pruning removes it.
@@ -184,7 +186,7 @@ Rules, all deliberate:
 **API tokens** (`src/modules/api_tokens/`) — personal, long-lived tokens for agents, sent in the same `Authorization: Bearer` header. `tda_` + `secrets.token_urlsafe(32)`; only the SHA-256 is stored, and the plain value is returned once, by `POST /api-tokens` (`ApiTokenCreatedResponse` is the only schema with a `token` field — the router builds it from the row plus the plain value, which no row holds).
 
 - **`get_current_user` dispatches on the prefix.** An API token must exist and not be expired (checked in SQL: SQLite returns timestamps without a timezone, so Python comparisons would fail in tests), and its owner must be active (401) and **not an admin (403)** — including an owner promoted after creating the token. A token never acts as an admin.
-- **`SessionUserDep` refuses an API token** (403) on `POST /api-tokens`, `DELETE /api-tokens/{id}`, `PATCH /users/me/email`, `/me/password`, `PATCH /users/{id}`, `POST /logout` and `POST /approval-requests/{id}/approve` / `reject`: an agent can't mint or revoke tokens (its owner's other tokens included), manage the account, log the human out, or approve its own requests. `GET /api-tokens` stays open to a token: it shows no secret. It doesn't *require* a JWT, it rejects the `tda_` prefix — the auth fixtures override `get_current_user` and send no header. The same prefix check is `IsApiTokenDep` (`is_api_token`, a plain `def`: `get_session_user` calls it directly, and an `async` one would return a coroutine, always truthy), for a route that behaves differently for an agent rather than refusing it.
+- **`SessionUserDep` refuses an API token** (403) on `POST /api-tokens`, `DELETE /api-tokens/{id}`, `PATCH /users/me/email`, `/me/password`, `PATCH /users/{id}`, `POST /logout` and `POST /approval-requests/{id}/approve` / `reject`: an agent can't mint or revoke tokens (its owner's other tokens included), manage the account, log the human out, or approve its own requests. `GET /api-tokens` stays open to a token: it shows no secret. It doesn't *require* a JWT, it rejects the `tda_` prefix — the auth fixtures override `get_current_user` and send no header. The same prefix check is `IsApiTokenDep`, for a route that behaves differently for an agent rather than refusing it.
 - **Creation** refuses admins, then checks the current password (`InvalidPasswordError`, counted in the sensitive-action limit), then caps active tokens at `API_TOKEN_MAX_ACTIVE` (409). The user's row is locked first (`UserRepository.lock`, `SELECT ... FOR UPDATE`) so concurrent creations can't exceed the cap; SQLite ignores `FOR UPDATE`, so a unit test only checks the lock comes before the count.
 - **`last_used_at`** is written at most once an hour, by a conditional `UPDATE`.
 - Revoking deletes the row. A password change keeps the tokens unless `revoke_api_tokens: true`. `api_tokens:prune_expired` (Sunday 05:00 UTC) deletes tokens expired for more than `API_TOKEN_EXPIRED_RETENTION_DAYS`; never-expiring ones are never pruned.
@@ -236,7 +238,7 @@ Dependencies between the two modules point one way, `categories → todos` at th
 
 So `categories/schemas.py` must never import from `todos/schemas.py`, and `todos/router.py` must never import from `categories/router.py`.
 
-`approvals` and `todos` follow the same shape: `ApprovalRequestService` takes a `TodoRepository` to freeze and delete completed todos, and `todos/router.py` imports `ApprovalRequestServiceDep` for `POST /todos/delete-completed`. Neither router imports the other's handlers, so there is no import cycle.
+`approvals` and `todos` follow the same shape: `ApprovalRequestService` takes a `TodoRepository` to freeze and delete completed todos, and `todos/router.py` imports `ApprovalRequestServiceDep` for `POST /todos/delete-completed`.
 
 Changing only a todo's categories writes to `todos_categories` alone, so `onupdate` never fires on `todos.updated_at`: `TodoRepository.update` sets `updated_at = func.now()` explicitly whenever categories are passed.
 
@@ -317,15 +319,13 @@ A bulk action asked by an agent isn't executed: it becomes a request that the hu
 approval_requests: owner_id · action · status (pending/approved/rejected) · payload (JSON) · result (JSON) · created_at · expires_at · decided_at
 ```
 
-- **`POST /todos/delete-completed` answers according to who calls.** A login session executes it directly (200, `{"deleted_count": n}`): approving one's own request would make no sense. An API token gets a `pending` request (202, `ApprovalRequestResponse`), or a 409 when there is no completed todo — an empty request leaves nothing to approve. The handler sets `response.status_code` and keeps `response_model`, rather than building a `Response` by hand.
+- **`POST /todos/delete-completed` answers according to who calls.** A login session executes it directly (200, `{"deleted_count": n}`): approving one's own request would make no sense. An API token gets a `pending` request (202, `ApprovalRequestResponse`), or a 409 when there is no completed todo — an empty request leaves nothing to approve.
 - **The human approves exactly what was asked.** The request freezes the IDs in `payload` (`{"todo_ids": [...]}`), computed by the server: the agent sends none, so injected text can't steer the scope. On approval, `delete_completed` re-checks `owner_id`, `is_completed` and `deleted_at`: a todo reopened or deleted since is skipped, a todo completed since isn't in the list, and `result.deleted_count` is what was really deleted.
 - **Only the owner decides**, admin included: `decide` takes `owner_id: int`, never `None`. An admin can read anyone's requests, not approve them — and an admin can't hold an API token, so their own requests never come from an agent. `approve`/`reject` are behind `SessionUserDep`.
-- **Deciding is one conditional `UPDATE`** (`WHERE status = 'pending' AND expires_at > :now`), checked by its `rowcount`: two simultaneous approvals can't both run the action. The row is read **after** it, and gives the reason of a failed decision — missing → 404, no longer `pending` → 409 already decided, otherwise → 409 expired. No date is compared in Python.
-- **`decide` uses `synchronize_session="fetch"`.** By default an ORM `UPDATE` re-evaluates its `WHERE` in Python on the objects already loaded in the session; under SQLite `expires_at` comes back without a timezone and the comparison with an aware `now` raises `TypeError`.
-- **Expiry is computed, not stored**: a request still `pending` after `expires_at` (`APPROVAL_REQUEST_EXPIRE_DAYS`, 7) has expired. No job has to flip a state, so the stored state is never stale.
-- **The action runs in the request's transaction.** If it fails, the switch to `approved` is rolled back and the request stays pending. `payload` is read back from the database, so it is validated (`TypeAdapter(list[int])`, strict `["todo_ids"]`): a corrupted one fails the approval instead of deleting nothing. `_execute_request` ends with `assert_never`, so a new `ApprovalAction` without its `case` is a type error.
-- `action` and `status` follow the `jobs` pattern (`VARCHAR` + hand-declared `CHECK` constraints `approvalaction`/`approvalstatus`): **a new action or status needs a hand-written migration.**
-- `payload`/`result` are typed `dict[str, JsonValue]`, never bare `JsonValue`: that alias includes `None`, so it would make the column nullable by inference and accept `None` where the database refuses it.
+- **Deciding is one conditional `UPDATE`** (`WHERE status = 'pending' AND expires_at > :now`), checked by its `rowcount`: two simultaneous approvals can't both run the action. The row is read **after** it, and gives the reason of a failed decision — missing → 404, no longer `pending` → 409 already decided, otherwise → 409 expired. `decide` keeps `synchronize_session="fetch"`: without it, the tests that load the request before deciding it fail on SQLite.
+- **Expiry is computed, not stored**: a request still `pending` after `expires_at` (`APPROVAL_REQUEST_EXPIRE_DAYS`, 7) has expired. There is no `expired` status.
+- **The action runs in the request's transaction.** If it fails, the switch to `approved` is rolled back and the request stays pending. `payload` is validated on execution (`TypeAdapter(list[int])`, strict `["todo_ids"]`): a corrupted one fails the approval instead of deleting nothing.
+- **A new action** needs a value in `ApprovalAction`, its `case` in `_execute_request`, and a hand-written migration of the `approvalaction` `CHECK` constraint (same pattern as `jobstatus`).
 
 ### MCP server
 
@@ -336,7 +336,7 @@ approval_requests: owner_id · action · status (pending/approved/rejected) · p
 - `server.py`: `build_mcp_server(api)`, tools defined inside it so they close over `api` (tests pass a client on `ASGITransport`).
 - **Tool names, docstrings and `Field` descriptions are the agent's interface**, in English. Their constraints mirror the API schemas (`max_length`...) and must follow them.
 - 14 tools. `delete_todo` deletes **one** todo directly (a soft delete), and `list_deleted_todos`/`restore_todo` undo it. `delete_completed_todos` only creates an approval request (see "Approval requests"); `list_approval_requests`/`get_approval_request` let the agent follow it, and **no tool approves or rejects** — the API would refuse a token anyway. There is no category deletion (admin-only in the API anyway). The create tools and `delete_completed_todos` require an `idempotency_key` (the API requires one with an API token) that the agent reuses on retry. `update_todo` never touches completion — that's `complete_todo` — and clears the description through `clear_description: bool`, because an agent can't reliably send an empty string; `None` means "leave unchanged".
-- `INSTRUCTIONS` (passed to `MCPServer`, sent to the model at connection) says that titles, descriptions and category names are user data, never instructions, and that bulk actions wait for a human — the agent must say so rather than claim the todos are deleted, and must not work around it one todo at a time. Keep it in step with the tools.
+- `INSTRUCTIONS` says that titles, descriptions and category names are user data, never instructions, and that bulk actions wait for a human — the agent must say so rather than claim the todos are deleted, and must not work around it one todo at a time. Keep it in step with the tools.
 - Stdout is the protocol channel: nothing in `mcp_server/` may `print`.
 - `tests/test_mcp_server.py` calls the tools against the app through `Client(server)`. Each test opens its own `Client`; a shared async fixture breaks it under pytest-asyncio.
 
