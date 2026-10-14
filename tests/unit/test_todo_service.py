@@ -147,7 +147,9 @@ async def test_get_todo_or_404_forwards_with_categories(regular_user):
 
     service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
 
-    result = await service.get_todo_or_404(current_user=regular_user, entity_id=1, with_categories=True)
+    result = await service.get_todo_or_404(
+        current_user=regular_user, entity_id=1, with_categories=True
+    )
 
     assert result == fake_todo
     mock_todo_repo.get_by_id.assert_called_once_with(owner_id=1, entity_id=1, with_categories=True)
@@ -233,7 +235,9 @@ async def test_update_todo_of_another_user_raises_not_found_error(regular_user):
     service = TodoService(repository=mock_todo_repo, category_repository=mock_category_repo)
 
     with pytest.raises(NotFoundError):
-        await service.update_todo(current_user=regular_user, entity_id=99, data=TodoUpdate(title="Hack"))
+        await service.update_todo(
+            current_user=regular_user, entity_id=99, data=TodoUpdate(title="Hack")
+        )
 
     mock_todo_repo.get_by_id.assert_called_once_with(
         owner_id=1, entity_id=99, with_categories=False
@@ -358,7 +362,9 @@ async def test_restore_todo_restores_the_deleted_todo(is_admin, expected_owner_i
     result = await service.restore_todo(current_user=user, entity_id=1)
 
     assert result == fake_todo
-    mock_todo_repo.get_deleted_by_id.assert_called_once_with(owner_id=expected_owner_id, entity_id=1)
+    mock_todo_repo.get_deleted_by_id.assert_called_once_with(
+        owner_id=expected_owner_id, entity_id=1
+    )
     mock_todo_repo.restore.assert_called_once_with(fake_todo)
 
 

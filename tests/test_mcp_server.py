@@ -270,7 +270,9 @@ async def test_list_deleted_todos_shows_only_the_token_owners_deleted_todos(
     assert page["items"][0]["deleted_at"] is not None
 
 
-async def test_restore_todo(server: MCPServer, db_session: AsyncSession, current_user: User) -> None:
+async def test_restore_todo(
+    server: MCPServer, db_session: AsyncSession, current_user: User
+) -> None:
     """The agent can undo a deletion, its own or the user's."""
     todos = TodoRepository(db_session)
     todo = await todos.create(current_user.id, TodoCreate(title="Back"), [])
