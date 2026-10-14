@@ -36,7 +36,6 @@ class BaseRepository[ModelT: Base]:
         for field, value in update_data.items():
             setattr(entity, field, value)
 
-        self.session.add(entity)
         await self.session.flush()
         await self.session.refresh(entity)
 
@@ -96,9 +95,9 @@ class SoftDeleteRepository[ModelT: Base](BaseRepository[ModelT]):
         return cast(CursorResult, result).rowcount
 
     async def restore(self, entity: ModelT) -> ModelT:
-        """Restore a soft-deleted entity"""
+        """Restore a soft-deleted entity."""
         setattr(entity, self.soft_delete_column, None)
-        self.session.add(entity)
+
         await self.session.flush()
         await self.session.refresh(entity)
 

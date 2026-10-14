@@ -103,7 +103,7 @@ class TodoRepository(SoftDeleteRepository[Todo]):
         title: str | None = None,
     ) -> Sequence[Todo]:
         """Fetch deleted todos only."""
-        query = select(Todo).order_by(Todo.deleted_at.desc())
+        query = select(Todo).order_by(Todo.deleted_at.desc(), Todo.id.desc())
         query = self._apply_filters(
             query,
             owner_id=owner_id,
