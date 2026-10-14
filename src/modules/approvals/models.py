@@ -35,7 +35,7 @@ class Approval(Base):
             ApprovalAction,
             native_enum=False,
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
-            length=20,
+            length=50,
             create_constraint=False,
         ),
     )
