@@ -114,6 +114,11 @@ class ApprovalRequestService:
         """Reject an approval request."""
         return await self._decide(current_user, entity_id, ApprovalStatus.REJECTED)
 
-    async def prune_expired_requests(self, before: datetime) -> int:
+    async def prune_expired(self) -> dict[str, int]:
         """Prune expired approval requests."""
-        return await self.repository.pruned_expired(before)
+        cutoff_date = datetime.now(UTC) - timedelta(days=settings.APPROVAL_REQUEST_EXPIRE_DAYS)
+        requests_deleted = await self.repository.pruned_expired(before=cutoff_date)
+
+        return {
+            "approval_requests": requests_deleted,
+        }
