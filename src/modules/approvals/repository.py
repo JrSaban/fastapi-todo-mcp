@@ -108,6 +108,19 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
         result = await self.session.execute(query)
         return cast(CursorResult[ApprovalRequest], result).rowcount
 
+    async def get_pending(
+        self, *, owner_id: int, action: ApprovalAction, now: datetime
+    ) -> ApprovalRequest | None:
+        """Get a pending approval request by owner ID and action."""
+        query = select(ApprovalRequest).where(
+            ApprovalRequest.owner_id == owner_id,
+            ApprovalRequest.action == action,
+            ApprovalRequest.status == ApprovalStatus.PENDING,
+            ApprovalRequest.expires_at > now,
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
     async def count(
         self,
         *,

@@ -12,6 +12,7 @@ from src.modules.approvals.schemas import ApprovalRequestResponse
 from src.modules.approvals.service import ApprovalRequestService
 from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.todos.repository import TodoRepository
+from src.modules.users.repository import UserRepository
 
 router = APIRouter(prefix="/approval-requests", tags=["ApprovalRequests"])
 
@@ -22,7 +23,8 @@ def get_approval_request_service(
 ) -> ApprovalRequestService:
     repository = ApprovalRequestRepository(session)
     todo_repository = TodoRepository(session)
-    return ApprovalRequestService(repository, todo_repository)
+    user_repository = UserRepository(session)
+    return ApprovalRequestService(repository, todo_repository, user_repository)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)

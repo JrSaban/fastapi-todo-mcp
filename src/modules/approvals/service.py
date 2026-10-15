@@ -12,16 +12,21 @@ from src.modules.approvals.models import ApprovalAction, ApprovalRequest, Approv
 from src.modules.approvals.repository import ApprovalRequestRepository
 from src.modules.todos.repository import TodoRepository
 from src.modules.users.models import User
+from src.modules.users.repository import UserRepository
 
 _TODO_IDS = TypeAdapter(list[int])
 
 
 class ApprovalRequestService:
     def __init__(
-        self, repository: ApprovalRequestRepository, todo_repository: TodoRepository
+        self,
+        repository: ApprovalRequestRepository,
+        todo_repository: TodoRepository,
+        user_repository: UserRepository,
     ) -> None:
         self.repository = repository
         self.todo_repository = todo_repository
+        self.user_repository = user_repository
 
     async def _decide(
         self, current_user: User, entity_id: int, status: ApprovalStatus
@@ -89,6 +94,18 @@ class ApprovalRequestService:
 
     async def request_delete_completed_todos(self, current_user: User) -> ApprovalRequest:
         """Request deletion of completed todos."""
+        await self.user_repository.lock(current_user.id)
+
+        pending_request = await self.repository.get_pending(
+            owner_id=current_user.id,
+            action=ApprovalAction.DELETE_COMPLETED_TODOS,
+            now=datetime.now(UTC),
+        )
+        if pending_request:
+            raise ConflictError(
+                f"Une demande de cette nature est déjà en attente. (ID: {pending_request.id})"
+            )
+
         completed_todos = await self.todo_repository.get_completed_ids(owner_id=current_user.id)
         if not completed_todos:
             raise ConflictError("Aucune tâche terminée trouvée.")
