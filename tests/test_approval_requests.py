@@ -12,6 +12,7 @@ from src.core.security import generate_api_token, hash_token
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest, ApprovalStatus
 from src.modules.approvals.repository import ApprovalRequestRepository
+from src.modules.approvals.tasks import prune_expired_requests
 from src.modules.todos.models import Todo
 from src.modules.todos.repository import TodoRepository
 from src.modules.todos.schemas import TodoCreate
@@ -336,9 +337,8 @@ async def test_an_admin_cannot_approve_someone_elses_request(
     assert not await _is_deleted(db_session, done.id)
 
 
-@pytest.mark.parametrize("decision", ["approve", "reject"])
-async def test_an_api_token_cannot_decide(
-    client: AsyncClient, db_session: AsyncSession, current_user: User, decision: str
+async def test_an_api_token_cannot_approve(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
 ) -> None:
     """The point of the whole mechanism: the agent can't approve its own request."""
     done = await _todo(db_session, current_user.id, "Fait")
@@ -346,7 +346,7 @@ async def test_an_api_token_cannot_decide(
     plain = await _issue_token(db_session, current_user.id)
 
     response = await client.post(
-        f"{REQUESTS_PATH}/{request.id}/{decision}",
+        f"{REQUESTS_PATH}/{request.id}/approve",
         headers={"Authorization": f"Bearer {plain}"},
     )
 
@@ -356,6 +356,187 @@ async def test_an_api_token_cannot_decide(
         select(ApprovalRequest.status).where(ApprovalRequest.id == request.id)
     )
     assert result.scalar_one() == ApprovalStatus.PENDING
+
+
+async def test_an_api_token_can_reject(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """Rejecting executes nothing, so the agent may cancel a request when the user asks."""
+    done = await _todo(db_session, current_user.id, "Fait")
+    request = await _pending_request(db_session, current_user.id, [done.id])
+    plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(
+        f"{REQUESTS_PATH}/{request.id}/reject",
+        headers={"Authorization": f"Bearer {plain}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "rejected"
+    assert not await _is_deleted(db_session, done.id)
+
+
+async def test_an_api_token_cannot_reject_someone_elses_request(
+    client: AsyncClient, db_session: AsyncSession, current_user: User, other_user: User
+) -> None:
+    request = await _pending_request(db_session, other_user.id, [])
+    plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(
+        f"{REQUESTS_PATH}/{request.id}/reject",
+        headers={"Authorization": f"Bearer {plain}"},
+    )
+
+    assert response.status_code == 404
+
+
+# --- one pending request per action ---
+
+
+async def test_a_second_agent_request_while_one_is_pending_returns_409_with_its_id(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """The agent is pointed to the request already waiting, instead of piling up new ones."""
+    done = await _todo(db_session, current_user.id, "Fait")
+    pending = await _pending_request(db_session, current_user.id, [done.id])
+    plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(DELETE_COMPLETED_PATH, headers=_agent_headers(plain))
+
+    assert response.status_code == 409
+    assert f"ID: {pending.id}" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("closed", ["expired", "rejected", "approved"])
+async def test_a_closed_request_doesnt_block_a_new_one(
+    client: AsyncClient, db_session: AsyncSession, current_user: User, closed: str
+) -> None:
+    """Only a request that can still be approved counts: an expired one is still `pending` in
+    the database, yet it must not block the user forever."""
+    done = await _todo(db_session, current_user.id, "Fait")
+    if closed == "expired":
+        await _pending_request(
+            db_session,
+            current_user.id,
+            [done.id],
+            expires_at=datetime.now(UTC) - timedelta(minutes=1),
+        )
+    else:
+        request = await _pending_request(db_session, current_user.id, [done.id])
+        request.status = ApprovalStatus(closed)
+    plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(DELETE_COMPLETED_PATH, headers=_agent_headers(plain))
+
+    assert response.status_code == 202
+
+
+async def test_another_users_pending_request_doesnt_block(
+    client: AsyncClient, db_session: AsyncSession, current_user: User, other_user: User
+) -> None:
+    await _pending_request(db_session, other_user.id, [])
+    await _todo(db_session, current_user.id, "Fait")
+    plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(DELETE_COMPLETED_PATH, headers=_agent_headers(plain))
+
+    assert response.status_code == 202
+
+
+# --- the computed "expired" status ---
+
+
+async def _three_requests(session: AsyncSession, owner_id: int) -> dict[str, ApprovalRequest]:
+    """A request waiting, one pending in the database but past its expiry, one rejected."""
+    waiting = await _pending_request(session, owner_id, [])
+    expired = await _pending_request(
+        session, owner_id, [], expires_at=datetime.now(UTC) - timedelta(minutes=1)
+    )
+    rejected = await _pending_request(session, owner_id, [])
+    rejected.status = ApprovalStatus.REJECTED
+    await session.flush()
+    return {"pending": waiting, "expired": expired, "rejected": rejected}
+
+
+async def test_responses_show_an_expired_request_as_expired(
+    authenticated_client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    requests = await _three_requests(db_session, current_user.id)
+
+    listed = await authenticated_client.get(REQUESTS_PATH)
+    one = await authenticated_client.get(f"{REQUESTS_PATH}/{requests['expired'].id}")
+
+    statuses = {item["id"]: item["status"] for item in listed.json()["items"]}
+    assert statuses == {request.id: state for state, request in requests.items()}
+    assert one.json()["status"] == "expired"
+
+
+@pytest.mark.parametrize("state", ["pending", "expired", "rejected"])
+async def test_the_status_filter_tells_pending_from_expired(
+    authenticated_client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    state: str,
+) -> None:
+    """`pending` means "can still be approved": an expired request only matches `expired`.
+    The page and its total agree."""
+    requests = await _three_requests(db_session, current_user.id)
+
+    response = await authenticated_client.get(f"{REQUESTS_PATH}?status={state}")
+
+    data = response.json()
+    assert [item["id"] for item in data["items"]] == [requests[state].id]
+    assert data["items"][0]["status"] == state
+    assert data["total"] == 1
+
+
+async def test_an_unknown_status_filter_returns_422(authenticated_client: AsyncClient) -> None:
+    response = await authenticated_client.get(f"{REQUESTS_PATH}?status=cancelled")
+
+    assert response.status_code == 422
+
+
+async def test_rejecting_an_expired_request_returns_409(
+    authenticated_client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    requests = await _three_requests(db_session, current_user.id)
+
+    response = await authenticated_client.post(f"{REQUESTS_PATH}/{requests['expired'].id}/reject")
+
+    assert response.status_code == 409
+
+
+# --- approvals:prune_expired ---
+
+
+async def test_prune_deletes_requests_expired_beyond_retention_whatever_their_status(
+    db_session: AsyncSession, current_user: User
+) -> None:
+    """The retention runs from expires_at, not from the decision: a request decided long ago
+    stays as long as an undecided one, so the user keeps the same history of both."""
+    now = datetime.now(UTC)
+    beyond = now - timedelta(days=settings.APPROVAL_REQUEST_RETENTION_DAYS + 1)
+    within = now - timedelta(days=settings.APPROVAL_REQUEST_RETENTION_DAYS - 1)
+    old_ids = []
+    for status in ApprovalStatus:
+        old = await _pending_request(db_session, current_user.id, [], expires_at=beyond)
+        old.status = status
+        old_ids.append(old.id)
+    recent = await _pending_request(db_session, current_user.id, [], expires_at=within)
+    recent.status = ApprovalStatus.APPROVED
+    waiting = await _pending_request(db_session, current_user.id, [])
+    await db_session.commit()
+
+    result = await (await prune_expired_requests.kiq()).wait_result()
+
+    assert result.return_value == {"approval_requests": len(old_ids)}
+    remaining = await db_session.execute(select(ApprovalRequest.id))
+    assert set(remaining.scalars()) == {recent.id, waiting.id}
+
+
+def test_prune_is_scheduled_monthly() -> None:
+    """The 1st of each month, 03:00 UTC."""
+    assert prune_expired_requests.labels["schedule"] == [{"cron": "0 3 1 * *"}]
 
 
 async def test_deciding_an_unknown_request_returns_404(
