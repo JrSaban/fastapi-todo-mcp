@@ -20,6 +20,8 @@ from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.tasks import prune_expired_api_tokens
 from src.modules.auth.router import sensitive_action_rate_limit_key
+from src.modules.categories.repository import CategoryRepository
+from src.modules.categories.schemas import CategoryCreate
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 
@@ -215,6 +217,55 @@ async def test_an_api_token_can_list_tokens(
 
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+async def test_an_api_token_cannot_create_a_category(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """A category's name is read by every user's agent: an agent steered by injected text could
+    otherwise copy the injection into a new category, or publish its owner's private todos."""
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(
+        CATEGORIES_PATH,
+        json={"name": "From an agent"},
+        headers={**_bearer(plain), "Idempotency-Key": "category-1"},
+    )
+    categories = await client.get(CATEGORIES_PATH, headers=_bearer(plain))
+
+    assert response.status_code == 403
+    assert categories.status_code == 200
+    assert categories.json()["total"] == 0
+
+
+async def test_an_api_token_cannot_rename_its_owners_category(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """The creator may rename a category, but not through a token: renaming would be another
+    way for an agent to write a name every user reads."""
+    category = await CategoryRepository(db_session).create(
+        current_user.id, CategoryCreate(name="Mine")
+    )
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.patch(
+        f"{CATEGORIES_PATH}/{category.id}", json={"name": "Renamed"}, headers=_bearer(plain)
+    )
+    unchanged = await client.get(f"{CATEGORIES_PATH}/{category.id}", headers=_bearer(plain))
+
+    assert response.status_code == 403
+    assert unchanged.json()["name"] == "Mine"
+
+
+async def test_a_login_session_still_creates_categories(
+    client: AsyncClient, current_user: User
+) -> None:
+    """Only API tokens are refused: a real access token goes through."""
+    token = create_access_token({"sub": str(current_user.id)})
+
+    response = await client.post(CATEGORIES_PATH, json={"name": "Human"}, headers=_bearer(token))
+
+    assert response.status_code == 201
 
 
 # --- GET /api-tokens and DELETE /api-tokens/{id} ---
@@ -498,7 +549,7 @@ async def test_identity_is_looked_up_once_per_request(
 
 
 @pytest.mark.parametrize(
-    ("path", "body"), [(TODOS_PATH, {"title": "No key"}), (CATEGORIES_PATH, {"name": "No key"})]
+    ("path", "body"), [(TODOS_PATH, {"title": "No key"}), (f"{TODOS_PATH}/delete-completed", {})]
 )
 async def test_api_token_create_without_idempotency_key_returns_400(
     client: AsyncClient,

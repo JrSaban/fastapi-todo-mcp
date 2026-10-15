@@ -10,7 +10,7 @@ from redis.asyncio import Redis
 from src.core.database import DbSessionDep
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
-from src.modules.auth.router import CurrentUserDep
+from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.categories.models import Category
 from src.modules.categories.repository import CategoryRepository
 from src.modules.categories.schemas import CategoryCreate, CategoryResponse, CategoryUpdate
@@ -60,7 +60,7 @@ async def list_categories(
 )
 async def create_category(
     service: CategoryServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     data: CategoryCreate,
 ) -> Category:
     return await service.create_category(created_by_id=current_user.id, data=data)
@@ -110,7 +110,7 @@ async def list_todos_by_category(
 )
 async def update_category(
     service: CategoryServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     category_id: int,
     data: CategoryUpdate,
 ) -> Category:
