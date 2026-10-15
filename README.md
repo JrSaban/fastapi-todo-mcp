@@ -21,16 +21,17 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 
 ## Features
 
-- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete and delete todos, and list, read and create categories, through 9 tools — one todo at a time, never in bulk. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
+- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete, delete and restore todos, and list, read and create categories, through 14 tools. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
+- **Human approval for an agent's bulk actions** — an agent deletes one todo at a time directly, but deleting all completed todos at once only creates a request, which the user approves or rejects from a login session; the agent can follow it but never decide it. The same action from a login session runs immediately
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
 - **Personal API tokens** — long-lived, revocable tokens for agents (up to 5 active per user, 30 days, 90 days or no expiry), shown once at creation and stored hashed; they can't manage the account or act as an admin
 - **Role-based access control** — regular users vs. admins, with dedicated endpoints to promote/demote or (de)activate accounts (protected against locking out the last remaining admin)
 - **Ownership & permissions** — a todo is private to its owner (admins see everything); a category is visible to everyone but only its creator or an admin can edit it, and only an admin can delete it
 - **Todos ↔ Categories** — many-to-many relationship, with optional eager-loading (`?include=categories`) and filtering by category
 - **Pagination & filtering** — every list endpoint supports `skip`/`limit` (page sizes of 10, 25, 50 or 100), free-text search, and resource-specific filters (status, category, role, ...)
-- **Soft deletes** on todos and categories — a deleted row stays in the database but is invisible to the API, like Laravel's `SoftDeletes`, and is deleted for good by a weekly background job after 30 days, like Laravel's `Prunable`
+- **Soft deletes** on todos and categories — a deleted row stays in the database but is invisible to the API, like Laravel's `SoftDeletes`, and is deleted for good by a weekly background job after 30 days, like Laravel's `Prunable`. Until then, deleted todos can be listed and restored
 - **Rate limiting** — a general per-user / per-IP request quota, plus stricter limits on failed logins and on wrong-password attempts when changing your email or password or creating an API token
-- **Idempotency keys** — an `Idempotency-Key` header on `POST /todos` and `POST /categories`, so a retried request returns the original response instead of creating a duplicate; optional for a login session, required for an API token
+- **Idempotency keys** — an `Idempotency-Key` header on `POST /todos`, `POST /categories` and `POST /todos/delete-completed`, so a retried request returns the original response instead of creating a duplicate; optional for a login session, required for an API token
 - **Background jobs with tracking** — every run is recorded (pending, running, succeeded, failed) and readable through the API, each user seeing their own jobs and admins all of them, scheduled runs included; admins can also start the pruning on demand
 - **Redis caching** on category reads, invalidated on every write
 - **Structured logging** — one JSON line per request, correlated by an `X-Request-ID` header
@@ -47,6 +48,7 @@ A few decisions worth a second look if you're skimming the code:
 - **Rate limits that only punish failures.** Login attempts are counted per IP *and* per email, so neither rotating emails from one machine nor spreading guesses across machines gets around the limit — and only failed attempts count, so a legitimate user is never throttled for logging in. The services know nothing about it: limits are checked and counted at the router level.
 - **Retries that can't create duplicates, even concurrent ones.** A client that times out and retries is the classic duplicate-maker — and the retry usually arrives while the first request is still running. The idempotency key is therefore claimed atomically in Redis (`SET NX`) *before* the request runs, so a concurrent retry gets a `409` instead of running twice. Only successful responses are stored, and only once the database transaction has actually committed.
 - **An agent gets no back door.** The MCP server lives outside `src/` and never imports it: it only calls the HTTP API, with the user's API token. Everything built to protect the API — rate limits, idempotency, ownership — therefore applies to the agent too, and an API token can't act as an admin or manage the account. Retrying a creation reuses the agent's idempotency key, so a blind retry never duplicates.
+- **A human stays in the loop where it matters.** An agent's bulk deletion becomes a request that freezes the exact todos it targets, chosen by the server rather than by the agent; the user approves that list, nothing more. Approving is a single conditional `UPDATE` on the pending row, so two approvals at once can't run the deletion twice, and an expired request can't be approved at all. Stored texts — especially category names, shared between users — can carry instructions aimed at the agent: the MCP server tells the model they are data, but the real limit is structural, since a token can neither manage the account, nor act as an admin, nor approve anything.
 - **A cache that never takes the API down.** Paginated category lists are invalidated with a generation counter (one `INCR` instead of hunting for every cached page). Every Redis call on the cache path is allowed to fail: the request falls back to PostgreSQL and logs a warning.
 - **Generic repository layer.** `BaseRepository[ModelT: Base]` (`src/core/repository.py`) uses Python 3.12's native generic syntax (`class Foo[T]`) to share pagination, counting and typed filtering across every repository, while each resource keeps its own fully-typed filter parameters — no dynamic/untyped filter dicts. A `SoftDeleteRepository` layer adds the pruning of old soft-deleted rows to the two models that need it, and only to them.
 - **Clean Architecture, enforced consistently.** Every module follows the same `router → service → repository → models` layering; services raise framework-agnostic exceptions (`NotFoundError`, `ForbiddenError`, ...) mapped to HTTP status codes in one place, never `HTTPException` scattered through the business logic.
@@ -109,7 +111,7 @@ uv run ruff format .       # format
 
 ## API overview
 
-All routes are prefixed with `/api/v1`. `POST /todos` and `POST /categories` accept an `Idempotency-Key` header, required when authenticating with an API token.
+All routes are prefixed with `/api/v1`. `POST /todos`, `POST /categories` and `POST /todos/delete-completed` accept an `Idempotency-Key` header, required when authenticating with an API token.
 
 | Method | Path | Description |
 |---|---|---|
@@ -126,6 +128,12 @@ All routes are prefixed with `/api/v1`. `POST /todos` and `POST /categories` acc
 | `PATCH` | `/users/{id}/active` `/admin` | (De)activate or promote a user *(admin only)* |
 | `GET` `POST` | `/todos` | List (own todos, or all for admins) / create a todo |
 | `GET` `PATCH` `DELETE` | `/todos/{id}` | View / update / delete a todo you own |
+| `GET` | `/todos/deleted` | List your deleted todos (all of them for admins) |
+| `POST` | `/todos/{id}/restore` | Restore a deleted todo |
+| `POST` | `/todos/delete-completed` | Delete your completed todos *(with an API token: creates an approval request instead)* |
+| `GET` | `/approval-requests` | List approval requests (your own, or all for admins) |
+| `GET` | `/approval-requests/{id}` | An approval request's status and result |
+| `POST` | `/approval-requests/{id}/approve` `/reject` | Approve or reject one of your requests *(login session only)* |
 | `GET` `POST` | `/categories` | List / create a category |
 | `GET` `PATCH` `DELETE` | `/categories/{id}` | View / update (creator or admin) / delete (admin only) |
 | `GET` | `/categories/{id}/todos` | Todos belonging to a category |
@@ -145,6 +153,7 @@ src/
 ├── modules/
 │   ├── auth/        # login, refresh, logout, JWT and API-token validation
 │   ├── api_tokens/   # personal API tokens for agents
+│   ├── approvals/    # approval requests: an agent's bulk actions wait for a human
 │   ├── users/        # user profiles, admin management
 │   ├── todos/        # todos, ownership
 │   ├── categories/   # categories, creator/admin permissions, cache

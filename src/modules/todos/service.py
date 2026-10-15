@@ -82,6 +82,11 @@ class TodoService:
         todo = await self.get_todo_or_404(current_user=current_user, entity_id=entity_id)
         await self.repository.delete(todo)
 
+    async def delete_completed_todos(self, current_user: User) -> int:
+        """Delete all completed todos."""
+        todo_ids = await self.repository.get_completed_ids(owner_id=current_user.id)
+        return await self.repository.delete_completed(todo_ids=todo_ids, owner_id=current_user.id)
+
     # --- Methods for deleted todos ---
 
     async def list_deleted_todos(

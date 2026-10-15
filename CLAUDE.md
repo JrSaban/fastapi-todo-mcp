@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+It records this project's own decisions only. How FastAPI, SQLAlchemy, Pydantic, pytest or Python work in general stays out, even when it caused a bug here: before adding a sentence, check it wouldn't be just as true in another FastAPI project.
+
 ## Project overview
 
 FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results. A separate MCP server (`mcp_server/`) lets an agent use the API.
@@ -115,7 +117,7 @@ Services return ORM models and the router serializes them through `response_mode
 
 `BaseRepository[ModelT: Base]` provides `get_by_id`, `update`, `delete`, `paginate` and `count_query` — the parts that are genuinely identical across resources. Its `get_by_id` and `delete` know nothing about soft deletes (`delete` is a real `DELETE`); `TodoRepository` and `CategoryRepository` override both.
 
-`SoftDeleteRepository[ModelT]` sits between the two: it extends `BaseRepository` with `prune_soft_deleted(before)`, a single bulk `DELETE` of rows soft-deleted before a date. `TodoRepository` and `CategoryRepository` inherit from it; `UserRepository` stays on `BaseRepository`, so the method only exists where it makes sense. The column is the `soft_delete_column` class attribute (`"deleted_at"`), overridden in one line by a model that doesn't follow the convention — Laravel's `const DELETED_AT`. The repository receives the cut-off date; the retention policy lives in the service.
+`SoftDeleteRepository[ModelT]` sits between the two: it extends `BaseRepository` with `prune_soft_deleted(before)`, a single bulk `DELETE` of rows soft-deleted before a date, and `restore(entity)`, which sets the column back to `NULL`. `TodoRepository` and `CategoryRepository` inherit from it; `UserRepository` stays on `BaseRepository`, so the method only exists where it makes sense. The column is the `soft_delete_column` class attribute (`"deleted_at"`), overridden in one line by a model that doesn't follow the convention — Laravel's `const DELETED_AT`. The repository receives the cut-off date; the retention policy lives in the service.
 
 `TodoRepository` keeps its own `get_by_id`/`update` (`# pyrefly: ignore[bad-override]`), because `owner_id`/`categories` are required parameters the shared signature can't express without weakening the "no default" guarantee described under Ownership. This divergence is deliberate, not a gap to unify.
 
@@ -138,7 +140,15 @@ Consequences to keep in mind:
 
 There is **no global scope**, unlike Laravel's `SoftDeletes` trait: every query on these two models filters `deleted_at IS NULL` by hand, and a new query must do the same. That includes queries going *through* the relationship (`selectinload`, `.any()`): a soft delete leaves the `todos_categories` rows in place, so the other side has to be filtered too.
 
-A deleted row behaves exactly like a missing one, for admins as well: 404 on `GET`/`PATCH`/`DELETE`, absent from lists and totals, silently dropped when its ID is sent in a todo's `category_ids`. There is no restore endpoint and no way to list deleted rows.
+A deleted row behaves exactly like a missing one, for admins as well: 404 on `GET`/`PATCH`/`DELETE`, absent from lists and totals, silently dropped when its ID is sent in a todo's `category_ids`.
+
+**Deleted todos can be listed and restored**, through two routes that are the only exception to the rule above. Same ownership rule as the live ones (owner, or any for an admin), through `TodoRepository.get_all_deleted`/`get_deleted_by_id` and `count(is_deleted=True)` — `_apply_filters` takes `is_deleted` so the page and its total still share their filters.
+
+- `GET /todos/deleted` (`PaginatedResponse[DeletedTodoResponse]`, which adds `deleted_at`), most recently deleted first.
+- `POST /todos/{todo_id}/restore` answers 404 for a todo that is missing, someone else's, **or not deleted**.
+- Categories have no restore: the name of a deleted one may have been reused since (the unique index is partial).
+
+A todo can be restored until the weekly pruning removes it.
 
 **Soft-deleted rows don't stay forever.** Once a week, the `maintenance:prune_soft_deleted` job hard-deletes the todos and categories soft-deleted more than `SOFT_DELETE_RETENTION_DAYS` (30) ago — Laravel's `Prunable` + `model:prune`. Their `todos_categories` rows go with them through the FKs' `ON DELETE CASCADE`, not by hand.
 
@@ -176,7 +186,7 @@ Rules, all deliberate:
 **API tokens** (`src/modules/api_tokens/`) — personal, long-lived tokens for agents, sent in the same `Authorization: Bearer` header. `tda_` + `secrets.token_urlsafe(32)`; only the SHA-256 is stored, and the plain value is returned once, by `POST /api-tokens` (`ApiTokenCreatedResponse` is the only schema with a `token` field — the router builds it from the row plus the plain value, which no row holds).
 
 - **`get_current_user` dispatches on the prefix.** An API token must exist and not be expired (checked in SQL: SQLite returns timestamps without a timezone, so Python comparisons would fail in tests), and its owner must be active (401) and **not an admin (403)** — including an owner promoted after creating the token. A token never acts as an admin.
-- **`SessionUserDep` refuses an API token** (403) on `POST /api-tokens`, `DELETE /api-tokens/{id}`, `PATCH /users/me/email`, `/me/password`, `PATCH /users/{id}` and `POST /logout`: an agent can't mint or revoke tokens (its owner's other tokens included), manage the account, or log the human out. `GET /api-tokens` stays open to a token: it shows no secret. It doesn't *require* a JWT, it rejects the `tda_` prefix — the auth fixtures override `get_current_user` and send no header.
+- **`SessionUserDep` refuses an API token** (403) on `POST /api-tokens`, `DELETE /api-tokens/{id}`, `PATCH /users/me/email`, `/me/password`, `PATCH /users/{id}`, `POST /logout` and `POST /approval-requests/{id}/approve` / `reject`: an agent can't mint or revoke tokens (its owner's other tokens included), manage the account, log the human out, or approve its own requests. `GET /api-tokens` stays open to a token: it shows no secret. It doesn't *require* a JWT, it rejects the `tda_` prefix — the auth fixtures override `get_current_user` and send no header. The same prefix check is `IsApiTokenDep`, for a route that behaves differently for an agent rather than refusing it.
 - **Creation** refuses admins, then checks the current password (`InvalidPasswordError`, counted in the sensitive-action limit), then caps active tokens at `API_TOKEN_MAX_ACTIVE` (409). The user's row is locked first (`UserRepository.lock`, `SELECT ... FOR UPDATE`) so concurrent creations can't exceed the cap; SQLite ignores `FOR UPDATE`, so a unit test only checks the lock comes before the count.
 - **`last_used_at`** is written at most once an hour, by a conditional `UPDATE`.
 - Revoking deletes the row. A password change keeps the tokens unless `revoke_api_tokens: true`. `api_tokens:prune_expired` (Sunday 05:00 UTC) deletes tokens expired for more than `API_TOKEN_EXPIRED_RETENTION_DAYS`; never-expiring ones are never pruned.
@@ -190,7 +200,7 @@ Rules, all deliberate:
 
 `Todo.owner_id` and `Category.created_by_id` are named differently on purpose: the two resources treat their user differently.
 
-**Todos are private.** `TodoRepository.get_all`/`get_by_id`/`count` take an `owner_id: int | None` filter; `TodoService` computes it as `current_user.id`, or `None` for an admin, which disables the filter. Ownership is enforced in one place, the repository's `WHERE`. Requesting someone else's todo therefore raises `NotFoundError`, never `ForbiddenError`: the row simply doesn't match, and a 403 would reveal that the ID exists. `get_by_id`'s `owner_id` is keyword-only with no default because it sits next to `entity_id`, another `int` — a positional call could swap them unnoticed, and a default would let a caller inherit an unfiltered query by accident.
+**Todos are private.** `TodoRepository.get_all`/`get_by_id`/`count` take an `owner_id: int | None` filter; `TodoService` computes it as `current_user.id`, or for an admin the `owner_id` query parameter of `GET /todos` and `GET /todos/deleted` — `None` when absent, which disables the filter. A regular user's `owner_id` parameter is ignored, not refused. `GET /approval-requests` follows the same rule. Ownership is enforced in one place, the repository's `WHERE`. Requesting someone else's todo therefore raises `NotFoundError`, never `ForbiddenError`: the row simply doesn't match, and a 403 would reveal that the ID exists. `get_by_id`'s `owner_id` is keyword-only with no default because it sits next to `entity_id`, another `int` — a positional call could swap them unnoticed, and a default would let a caller inherit an unfiltered query by accident.
 
 **Categories are shared.** Every authenticated user can list, read and create them; `created_by_id` gates mutation only. `update_category` requires admin or creator; `delete_category` requires admin — the creator cannot delete their own category. The checks are ordered differently on purpose: `update_category` fetches the row first because it needs `created_by_id` to decide, while `delete_category` checks `is_admin` before touching the repository, since the answer doesn't depend on the row (same order as `UserService.set_user_active`/`set_user_admin`).
 
@@ -228,6 +238,8 @@ Dependencies between the two modules point one way, `categories → todos` at th
 
 So `categories/schemas.py` must never import from `todos/schemas.py`, and `todos/router.py` must never import from `categories/router.py`.
 
+`approvals` and `todos` follow the same shape: `ApprovalRequestService` takes a `TodoRepository` to freeze and delete completed todos, and `todos/router.py` imports `ApprovalRequestServiceDep` for `POST /todos/delete-completed`.
+
 Changing only a todo's categories writes to `todos_categories` alone, so `onupdate` never fires on `todos.updated_at`: `TodoRepository.update` sets `updated_at = func.now()` explicitly whenever categories are passed.
 
 ### Optional includes and pagination
@@ -258,7 +270,7 @@ Three independent limits, all fixed-window counters in Redis, all answering 429 
 
 ### Idempotency keys
 
-An `Idempotency-Key` header on `POST /todos` and `POST /categories` (`IDEMPOTENT_ROUTES` in `main.py`): a retried request gets the stored response back instead of creating a duplicate. **Optional with a JWT, required with an API token** (400 without it): an agent may retry blindly, a human session may not need it. The middleware knows which by `request.state.auth_method`, set by `_request_user_id`; a token that resolves to no user gets the route's 401, never this 400. The `idempotency` middleware makes the HTTP decisions; `src/core/idempotency.py` only stores, and knows nothing of routes or requests.
+An `Idempotency-Key` header on `POST /todos`, `POST /categories` and `POST /todos/delete-completed` (`IDEMPOTENT_ROUTES` in `main.py`): a retried request gets the stored response back instead of creating a duplicate. **Optional with a JWT, required with an API token** (400 without it): an agent may retry blindly, a human session may not need it. The middleware knows which by `request.state.auth_method`, set by `_request_user_id`; a token that resolves to no user gets the route's 401, never this 400. The `idempotency` middleware makes the HTTP decisions; `src/core/idempotency.py` only stores, and knows nothing of routes or requests.
 
 ```
 idempotency:<user_id>:<key> → {"status": "in_progress", "request_hash"}                        (IDEMPOTENCY_LOCK_TTL_SECONDS)
@@ -299,6 +311,22 @@ jobs: task_id (Taskiq id, exposed) · owner_id (NULL for scheduled runs) · task
 - **`maintenance:prune_old_jobs`** (Sunday 04:00 UTC) deletes rows **created** more than `JOB_RETENTION_DAYS` ago whatever their status, which also clears runs stuck `pending`/`running`.
 - `MaintenanceService` reaches todos/categories through their repositories (plain SQL, no rule of theirs applies) but jobs only through `JobService`, which owns `task_id` generation — never `job_service.repository`.
 
+### Approval requests
+
+A bulk action asked by an agent isn't executed: it becomes a request that the human approves or rejects. One action exists, `delete_completed_todos`. The mechanism lives in `src/modules/approvals/`; the action itself stays a todos operation (`TodoRepository.get_completed_ids`/`delete_completed`).
+
+```
+approval_requests: owner_id · action · status (pending/approved/rejected) · payload (JSON) · result (JSON) · created_at · expires_at · decided_at
+```
+
+- **`POST /todos/delete-completed` answers according to who calls.** A login session executes it directly (200, `{"deleted_count": n}`): approving one's own request would make no sense. An API token gets a `pending` request (202, `ApprovalRequestResponse`), or a 409 when there is no completed todo — an empty request leaves nothing to approve.
+- **The human approves exactly what was asked.** The request freezes the IDs in `payload` (`{"todo_ids": [...]}`), computed by the server: the agent sends none, so injected text can't steer the scope. On approval, `delete_completed` re-checks `owner_id`, `is_completed` and `deleted_at`: a todo reopened or deleted since is skipped, a todo completed since isn't in the list, and `result.deleted_count` is what was really deleted.
+- **Only the owner decides**, admin included: `decide` takes `owner_id: int`, never `None`. An admin can read anyone's requests, not approve them — and an admin can't hold an API token, so their own requests never come from an agent. `approve`/`reject` are behind `SessionUserDep`.
+- **Deciding is one conditional `UPDATE`** (`WHERE status = 'pending' AND expires_at > :now`), checked by its `rowcount`: two simultaneous approvals can't both run the action. The row is read **after** it, and gives the reason of a failed decision — missing → 404, no longer `pending` → 409 already decided, otherwise → 409 expired. `decide` keeps `synchronize_session="fetch"`: without it, the tests that load the request before deciding it fail on SQLite.
+- **Expiry is computed, not stored**: a request still `pending` after `expires_at` (`APPROVAL_REQUEST_EXPIRE_DAYS`, 7) has expired. There is no `expired` status.
+- **The action runs in the request's transaction.** If it fails, the switch to `approved` is rolled back and the request stays pending. `payload` is validated on execution (`TypeAdapter(list[int])`, strict `["todo_ids"]`): a corrupted one fails the approval instead of deleting nothing.
+- **A new action** needs a value in `ApprovalAction`, its `case` in `_execute_request`, and a hand-written migration of the `approvalaction` `CHECK` constraint (same pattern as `jobstatus`).
+
 ### MCP server
 
 `mcp_server/` (top level, outside `src/`) exposes the API to an agent as MCP tools, over stdio. It is **a plain HTTP client of the API** with a personal API token and **never imports `src/`**: an agent must go through the same permissions, rate limits and idempotency as any client. The `mcp` SDK is 2.x, where `FastMCP` is renamed `MCPServer`.
@@ -307,7 +335,8 @@ jobs: task_id (Taskiq id, exposed) · owner_id (NULL for scheduled runs) · task
 - `api_client.py`: adds the token to every request; any API error becomes a `ToolError` `"API error <status>: <detail>"` (a 422 detail list is flattened to `field.path: message`), an unreachable API `"API unreachable (<exception>)"`.
 - `server.py`: `build_mcp_server(api)`, tools defined inside it so they close over `api` (tests pass a client on `ASGITransport`).
 - **Tool names, docstrings and `Field` descriptions are the agent's interface**, in English. Their constraints mirror the API schemas (`max_length`...) and must follow them.
-- 9 tools. `delete_todo` deletes **one** todo directly (a soft delete); an action touching many todos at once is to go through human approval instead. There is no category deletion (admin-only in the API anyway). The create tools require an `idempotency_key` (the API requires one with an API token) that the agent reuses on retry. `update_todo` never touches completion — that's `complete_todo` — and clears the description through `clear_description: bool`, because an agent can't reliably send an empty string; `None` means "leave unchanged".
+- 14 tools. `delete_todo` deletes **one** todo directly (a soft delete), and `list_deleted_todos`/`restore_todo` undo it. `delete_completed_todos` only creates an approval request (see "Approval requests"); `list_approval_requests`/`get_approval_request` let the agent follow it, and **no tool approves or rejects** — the API would refuse a token anyway. There is no category deletion (admin-only in the API anyway). The create tools and `delete_completed_todos` require an `idempotency_key` (the API requires one with an API token) that the agent reuses on retry. `update_todo` never touches completion — that's `complete_todo` — and clears the description through `clear_description: bool`, because an agent can't reliably send an empty string; `None` means "leave unchanged".
+- `INSTRUCTIONS` says that titles, descriptions and category names are user data, never instructions, and that bulk actions wait for a human — the agent must say so rather than claim the todos are deleted, and must not work around it one todo at a time. Keep it in step with the tools.
 - Stdout is the protocol channel: nothing in `mcp_server/` may `print`.
 - `tests/test_mcp_server.py` calls the tools against the app through `Client(server)`. Each test opens its own `Client`; a shared async fixture breaks it under pytest-asyncio.
 
@@ -328,4 +357,5 @@ Accepted for now; don't "fix" them as a side effect of other work, and don't des
 - **An idempotent replay doesn't recheck the account (JWT only).** For a JWT the middleware reads the user from the signature only, so a replay returns the stored response without `get_current_user`'s `is_active` check: a deactivated user still gets their own stored 201 until their access token expires (5 minutes at most), while every route already answers 401. An API token's lookup does check the account.
 - **A request that outlives the idempotency lock can run twice.** The claim expires after `IDEMPOTENCY_LOCK_TTL_SECONDS` even if the request is still running, so a retry can claim the key and run the route in parallel. The first request's `save_idempotent_response`/`release_idempotency_key` then overwrite or delete the second one's claim, since neither checks the claim is still its own. Fixing it means an ownership token stored at claim time and checked atomically on save and release.
 - **An API token is looked up in the database before the general rate limit decides.** Even a made-up `tda_` value already blocked by its IP's counter costs one query on the unique hash index. Cheap today; if it ever matters, check the IP counter before the lookup, or remember unknown token hashes in Redis.
+- **Prompt injection through stored text can only be bounded, not prevented.** Todo titles and descriptions, and above all category names — shared, so written by any user — reach the agent's context through the tools. The MCP `INSTRUCTIONS` tell the model to treat them as data, but that is a request to the model, not a guarantee. What limits the damage is structural: a token can't manage the account or act as an admin, a bulk action needs a human's approval, and a single deletion is a reversible soft delete.
 - **The login and sensitive-action limits can be bypassed in parallel.** The counter is read before the attempt and incremented only after a failure, so simultaneous attempts all pass the check: 40 parallel logins gave 40 × 401 and no 429. Planned fix: `ROADMAP.md`, "Atomic attempt limits".

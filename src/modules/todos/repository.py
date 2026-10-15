@@ -5,8 +5,9 @@ Encapsule les requêtes SQL (SQLAlchemy 2.0 select, add, delete).
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import cast
 
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import CursorResult, Select, and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -92,6 +93,34 @@ class TodoRepository(SoftDeleteRepository[Todo]):
         entity.deleted_at = datetime.now(UTC)
         self.session.add(entity)
         await self.session.flush()
+
+    async def get_completed_ids(self, owner_id: int) -> Sequence[int]:
+        """Get completed todo ids."""
+        query = (
+            select(Todo.id)
+            .where(
+                Todo.owner_id == owner_id, Todo.is_completed.is_(True), Todo.deleted_at.is_(None)
+            )
+            .order_by(Todo.id.desc())
+        )
+
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def delete_completed(self, todo_ids: Sequence[int], owner_id: int) -> int:
+        """Soft delete many todos."""
+        query = (
+            update(Todo)
+            .where(
+                Todo.id.in_(todo_ids),
+                Todo.owner_id == owner_id,
+                Todo.deleted_at.is_(None),
+                Todo.is_completed.is_(True),
+            )
+            .values(deleted_at=datetime.now(UTC))
+        )
+        result = await self.session.execute(query)
+        return cast(CursorResult, result).rowcount
 
     # --- CRUD for deleted entities ---
 

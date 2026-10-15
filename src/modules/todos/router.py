@@ -5,15 +5,18 @@ Routing & Controller Layer pour le domaine Todos.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from src.core.database import DbSessionDep
 from src.core.schemas import LimitQuery, PaginatedResponse
-from src.modules.auth.router import CurrentUserDep
+from src.modules.approvals.router import ApprovalRequestServiceDep
+from src.modules.approvals.schemas import ApprovalRequestResponse
+from src.modules.auth.router import CurrentUserDep, IsApiTokenDep
 from src.modules.categories.repository import CategoryRepository
 from src.modules.todos.models import Todo
 from src.modules.todos.repository import TodoRepository
 from src.modules.todos.schemas import (
+    DeleteCompletedTodosResponse,
     DeletedTodoResponse,
     TodoCreate,
     TodoDetailResponse,
@@ -36,6 +39,9 @@ def get_todo_service(
 
 # Type alias pour injection propre et lisible (standard Python moderne)
 TodoServiceDep = Annotated[TodoService, Depends(get_todo_service)]
+
+
+# -------- GET methods --------
 
 
 @router.get(
@@ -71,21 +77,6 @@ async def list_todos(
     )
 
     return PaginatedResponse(items=todos, total=total, skip=skip, limit=limit)
-
-
-@router.post(
-    "",
-    response_model=TodoResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Créer une tâche",
-    description="Crée une nouvelle tâche et la persiste en base de données.",
-)
-async def create_todo(
-    service: TodoServiceDep,
-    current_user: CurrentUserDep,
-    data: TodoCreate,
-) -> Todo:
-    return await service.create_todo(owner_id=current_user.id, data=data)
 
 
 @router.get(
@@ -137,6 +128,66 @@ async def get_todo(
     return TodoResponse.model_validate(todo)
 
 
+# -------- POST methods --------
+
+
+@router.post(
+    "",
+    response_model=TodoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Créer une tâche",
+    description="Crée une nouvelle tâche et la persiste en base de données.",
+)
+async def create_todo(
+    service: TodoServiceDep,
+    current_user: CurrentUserDep,
+    data: TodoCreate,
+) -> Todo:
+    return await service.create_todo(owner_id=current_user.id, data=data)
+
+
+@router.post(
+    "/delete-completed",
+    response_model=DeleteCompletedTodosResponse | ApprovalRequestResponse,
+    responses={202: {"model": ApprovalRequestResponse}},
+    summary="Supprimer toutes les tâches terminées",
+    description="Supprime toutes les tâches terminées.",
+)
+async def delete_completed_todos(
+    service: TodoServiceDep,
+    approval_service: ApprovalRequestServiceDep,
+    response: Response,
+    current_user: CurrentUserDep,
+    is_api_token: IsApiTokenDep,
+) -> DeleteCompletedTodosResponse | ApprovalRequestResponse:
+    if is_api_token:
+        approval_request = await approval_service.request_delete_completed_todos(
+            current_user=current_user
+        )
+        response.status_code = status.HTTP_202_ACCEPTED
+        return ApprovalRequestResponse.model_validate(approval_request)
+
+    deleted_count = await service.delete_completed_todos(current_user=current_user)
+    return DeleteCompletedTodosResponse(deleted_count=deleted_count)
+
+
+@router.post(
+    "/{todo_id}/restore",
+    response_model=TodoResponse,
+    summary="Restaurer une tâche",
+    description="Restaure une tâche supprimée.",
+)
+async def restore_todo(
+    service: TodoServiceDep,
+    current_user: CurrentUserDep,
+    todo_id: int,
+) -> Todo:
+    return await service.restore_todo(current_user=current_user, entity_id=todo_id)
+
+
+# -------- PATCH methods --------
+
+
 @router.patch(
     "/{todo_id}",
     response_model=TodoResponse,
@@ -152,6 +203,9 @@ async def update_todo(
     return await service.update_todo(current_user=current_user, entity_id=todo_id, data=data)
 
 
+# -------- DELETE methods --------
+
+
 @router.delete(
     "/{todo_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -164,17 +218,3 @@ async def delete_todo(
     todo_id: int,
 ) -> None:
     await service.delete_todo(current_user=current_user, entity_id=todo_id)
-
-
-@router.post(
-    "/{todo_id}/restore",
-    response_model=TodoResponse,
-    summary="Restaurer une tâche",
-    description="Restaure une tâche supprimée.",
-)
-async def restore_todo(
-    service: TodoServiceDep,
-    current_user: CurrentUserDep,
-    todo_id: int,
-) -> Todo:
-    return await service.restore_todo(current_user=current_user, entity_id=todo_id)

@@ -127,10 +127,18 @@ async def record_sensitive_action_failure(redis_client: Redis, user_id: int) -> 
     await increment_rate_limit(redis_client, [key], settings.SENSITIVE_RATE_LIMIT_WINDOW_MINUTES)
 
 
+def is_api_token(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(optional_bearer)],
+) -> bool:
+    """Check if the current user is using an API token."""
+    return credentials is not None and credentials.credentials.startswith(API_TOKEN_PREFIX)
+
+
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 # Type alias pour injection propre et lisible (standard Python moderne)
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 RateLimitLoginDep = Annotated[None, Depends(check_login_rate_limit)]
+IsApiTokenDep = Annotated[bool, Depends(is_api_token)]
 
 
 async def get_session_user(
@@ -138,7 +146,7 @@ async def get_session_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(optional_bearer)],
 ) -> User:
     """Get session user (not API token)."""
-    if credentials is not None and credentials.credentials.startswith(API_TOKEN_PREFIX):
+    if is_api_token(credentials):
         raise ForbiddenError("Vous ne pouvez pas utiliser un token API sur cette ressource.")
 
     return current_user
