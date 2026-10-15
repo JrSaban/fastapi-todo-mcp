@@ -6,9 +6,8 @@ from fastapi import APIRouter, Depends, Query
 
 from src.core.database import DbSessionDep
 from src.core.schemas import LimitQuery, PaginatedResponse
-from src.modules.approvals.models import ApprovalStatus
 from src.modules.approvals.repository import ApprovalRequestRepository
-from src.modules.approvals.schemas import ApprovalRequestResponse
+from src.modules.approvals.schemas import ApprovalRequestResponse, ApprovalRequestState
 from src.modules.approvals.service import ApprovalRequestService
 from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.todos.repository import TodoRepository
@@ -46,7 +45,8 @@ async def list_approval_requests(
         int | None, Query(description="Filtre sur le propriétaire (Seulement pour les admins)")
     ] = None,
     status: Annotated[
-        ApprovalStatus | None, Query(description="Filtre sur le statut de la demande d'approbation")
+        ApprovalRequestState | None,
+        Query(description="Filtre sur le statut de la demande d'approbation"),
     ] = None,
 ) -> PaginatedResponse[ApprovalRequestResponse]:
     approval_requests, total = await service.list_approval_requests(

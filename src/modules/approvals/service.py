@@ -10,6 +10,7 @@ from src.core.config import settings
 from src.core.exceptions import ConflictError, NotFoundError
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest, ApprovalStatus
 from src.modules.approvals.repository import ApprovalRequestRepository
+from src.modules.approvals.schemas import ApprovalRequestState
 from src.modules.todos.repository import TodoRepository
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
@@ -66,18 +67,20 @@ class ApprovalRequestService:
         skip: int = 0,
         limit: int = 25,
         owner_id: int | None = None,
-        status: ApprovalStatus | None = None,
+        status: ApprovalRequestState | None = None,
     ) -> tuple[Sequence[ApprovalRequest], int]:
         """Fetch all approval requests with pagination."""
         owner_id = current_user.id if not current_user.is_admin else owner_id
+        now = datetime.now(UTC)
 
         requests = await self.repository.get_all(
             skip=skip,
             limit=limit,
             owner_id=owner_id,
             status=status,
+            now=now,
         )
-        total = await self.repository.count(owner_id=owner_id, status=status)
+        total = await self.repository.count(owner_id=owner_id, status=status, now=now)
 
         return (requests, total)
 

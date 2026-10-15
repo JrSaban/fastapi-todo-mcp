@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import cast
+from typing import assert_never, cast
 
 from pydantic import JsonValue
 from sqlalchemy import CursorResult, Select, delete, func, select, update
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.repository import BaseRepository, FilterParams
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest, ApprovalStatus
+from src.modules.approvals.schemas import ApprovalRequestState
 
 
 class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
@@ -21,7 +22,8 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
         skip: int = 0,
         limit: int = 25,
         owner_id: int | None = None,
-        status: ApprovalStatus | None = None,
+        status: ApprovalRequestState | None = None,
+        now: datetime | None = None,
     ) -> Sequence[ApprovalRequest]:
         """Get paginated approval requests."""
         query = select(ApprovalRequest).order_by(
@@ -31,6 +33,7 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
             query,
             owner_id=owner_id,
             status=status,
+            now=now,
         )
 
         return await self.paginate(query, skip, limit)
@@ -126,7 +129,8 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
         *,
         owner_id: int | None = None,
         action: ApprovalAction | None = None,
-        status: ApprovalStatus | None = None,
+        status: ApprovalRequestState | None = None,
+        now: datetime | None = None,
     ) -> int:
         """Count approvals requests with filters."""
         query = select(func.count()).select_from(ApprovalRequest)
@@ -135,6 +139,7 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
             owner_id=owner_id,
             action=action,
             status=status,
+            now=now,
         )
 
         return await self.count_query(query)
@@ -145,14 +150,33 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
         *,
         owner_id: int | None = None,
         action: ApprovalAction | None = None,
-        status: ApprovalStatus | None = None,
+        status: ApprovalRequestState | None = None,
+        now: datetime | None = None,
     ) -> Select:
         """Helper which applies filters on a query."""
-        return self._apply_filter_params(
+        query = self._apply_filter_params(
             query,
             [
                 FilterParams(column=ApprovalRequest.owner_id, value=owner_id, op="eq"),
-                FilterParams(column=ApprovalRequest.status, value=status, op="eq"),
                 FilterParams(column=ApprovalRequest.action, value=action, op="eq"),
             ],
         )
+
+        if status in (ApprovalRequestState.EXPIRED, ApprovalRequestState.PENDING) and now is None:
+            raise ValueError("now is required for EXPIRED and PENDING status")
+
+        match status:
+            case ApprovalRequestState.APPROVED | ApprovalRequestState.REJECTED:
+                query = query.where(ApprovalRequest.status == ApprovalStatus(status.value))
+            case ApprovalRequestState.EXPIRED | ApprovalRequestState.PENDING:
+                query = query.where(ApprovalRequest.status == ApprovalStatus.PENDING)
+                if status == ApprovalRequestState.PENDING:
+                    query = query.where(ApprovalRequest.expires_at > now)
+                else:
+                    query = query.where(ApprovalRequest.expires_at <= now)
+            case None:
+                pass
+            case _:
+                assert_never(status)
+
+        return query
