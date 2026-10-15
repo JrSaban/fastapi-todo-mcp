@@ -20,6 +20,8 @@ from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.tasks import prune_expired_api_tokens
 from src.modules.auth.router import sensitive_action_rate_limit_key
+from src.modules.categories.repository import CategoryRepository
+from src.modules.categories.schemas import CategoryCreate
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 
@@ -234,6 +236,25 @@ async def test_an_api_token_cannot_create_a_category(
     assert response.status_code == 403
     assert categories.status_code == 200
     assert categories.json()["total"] == 0
+
+
+async def test_an_api_token_cannot_rename_its_owners_category(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """The creator may rename a category, but not through a token: renaming would be another
+    way for an agent to write a name every user reads."""
+    category = await CategoryRepository(db_session).create(
+        current_user.id, CategoryCreate(name="Mine")
+    )
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.patch(
+        f"{CATEGORIES_PATH}/{category.id}", json={"name": "Renamed"}, headers=_bearer(plain)
+    )
+    unchanged = await client.get(f"{CATEGORIES_PATH}/{category.id}", headers=_bearer(plain))
+
+    assert response.status_code == 403
+    assert unchanged.json()["name"] == "Mine"
 
 
 async def test_a_login_session_still_creates_categories(
