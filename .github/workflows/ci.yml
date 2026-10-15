@@ -61,10 +61,20 @@ jobs:
       - run: uv sync
       - run: uv run alembic upgrade head
 
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          cache-suffix: audit
+      - run: uv export --frozen --format requirements-txt --no-emit-project > requirements-audit.txt
+      - run: uvx pip-audit==2.10.1 -r requirements-audit.txt --disable-pip
+
   docker:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, format, test, migrations]
+    needs: [lint, format, test, migrations, audit]
     permissions:
       contents: read
       packages: write
