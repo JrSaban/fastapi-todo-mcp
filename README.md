@@ -21,8 +21,8 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 
 ## Features
 
-- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete, delete and restore todos, and list, read and create categories, through 14 tools. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
-- **Human approval for an agent's bulk actions** — an agent deletes one todo at a time directly, but deleting all completed todos at once only creates a request, which the user approves or rejects from a login session; the agent can follow it but never decide it. The same action from a login session runs immediately
+- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete, delete and restore todos, and list, read and create categories, through 15 tools. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
+- **Human approval for an agent's bulk actions** — an agent deletes one todo at a time directly, but deleting all completed todos at once only creates a request, which the user approves from a login session; the agent can follow it, or cancel it when the user asks, but never approve it. One request per action can be pending at a time, it expires after 7 days, and requests are kept as history for 3 months after that. The same action from a login session runs immediately
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
 - **Personal API tokens** — long-lived, revocable tokens for agents (up to 5 active per user, 30 days, 90 days or no expiry), shown once at creation and stored hashed; they can't manage the account or act as an admin
 - **Role-based access control** — regular users vs. admins, with dedicated endpoints to promote/demote or (de)activate accounts (protected against locking out the last remaining admin)
@@ -133,7 +133,8 @@ All routes are prefixed with `/api/v1`. `POST /todos`, `POST /categories` and `P
 | `POST` | `/todos/delete-completed` | Delete your completed todos *(with an API token: creates an approval request instead)* |
 | `GET` | `/approval-requests` | List approval requests (your own, or all for admins) |
 | `GET` | `/approval-requests/{id}` | An approval request's status and result |
-| `POST` | `/approval-requests/{id}/approve` `/reject` | Approve or reject one of your requests *(login session only)* |
+| `POST` | `/approval-requests/{id}/approve` | Approve one of your requests *(login session only)* |
+| `POST` | `/approval-requests/{id}/reject` | Reject or cancel one of your requests |
 | `GET` `POST` | `/categories` | List / create a category |
 | `GET` `PATCH` `DELETE` | `/categories/{id}` | View / update (creator or admin) / delete (admin only) |
 | `GET` | `/categories/{id}/todos` | Todos belonging to a category |
