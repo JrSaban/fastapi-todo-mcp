@@ -93,12 +93,46 @@ class TodoRepository(SoftDeleteRepository[Todo]):
         self.session.add(entity)
         await self.session.flush()
 
+    # --- CRUD for deleted entities ---
+
+    async def get_all_deleted(
+        self,
+        skip: int = 0,
+        limit: int = 25,
+        owner_id: int | None = None,
+        title: str | None = None,
+    ) -> Sequence[Todo]:
+        """Fetch deleted todos only."""
+        query = select(Todo).order_by(Todo.deleted_at.desc(), Todo.id.desc())
+        query = self._apply_filters(
+            query,
+            owner_id=owner_id,
+            title=title,
+            is_deleted=True,
+        )
+
+        return await self.paginate(query, skip, limit)
+
+    async def get_deleted_by_id(self, entity_id: int, *, owner_id: int | None) -> Todo | None:
+        """Get a deleted todo by its ID."""
+        query = select(Todo).where(Todo.id == entity_id, Todo.deleted_at.is_not(None))
+
+        if owner_id is not None:
+            query = query.where(Todo.owner_id == owner_id)
+
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    # --- utility methods ---
+
     async def count(
         self,
         owner_id: int | None = None,
         title: str | None = None,
         is_completed: bool | None = None,
         category_ids: list[int] | None = None,
+        *,
+        is_deleted: bool = False,
     ) -> int:
         query = select(func.count()).select_from(Todo)
         query = self._apply_filters(
@@ -107,6 +141,7 @@ class TodoRepository(SoftDeleteRepository[Todo]):
             title=title,
             is_completed=is_completed,
             category_ids=category_ids,
+            is_deleted=is_deleted,
         )
 
         return await self.count_query(query)
@@ -118,8 +153,10 @@ class TodoRepository(SoftDeleteRepository[Todo]):
         title: str | None = None,
         is_completed: bool | None = None,
         category_ids: list[int] | None = None,
+        *,
+        is_deleted: bool = False,
     ) -> Select:
-        """Helper qui applique les filtres sur une requête."""
+        """Apply filters on a query."""
         query = self._apply_filter_params(
             query,
             [
@@ -139,5 +176,9 @@ class TodoRepository(SoftDeleteRepository[Todo]):
                 )
             )
 
-        query = query.where(Todo.deleted_at.is_(None))
+        if is_deleted:
+            query = query.where(Todo.deleted_at.is_not(None))
+        else:
+            query = query.where(Todo.deleted_at.is_(None))
+
         return query

@@ -13,7 +13,13 @@ from src.modules.auth.router import CurrentUserDep
 from src.modules.categories.repository import CategoryRepository
 from src.modules.todos.models import Todo
 from src.modules.todos.repository import TodoRepository
-from src.modules.todos.schemas import TodoCreate, TodoDetailResponse, TodoResponse, TodoUpdate
+from src.modules.todos.schemas import (
+    DeletedTodoResponse,
+    TodoCreate,
+    TodoDetailResponse,
+    TodoResponse,
+    TodoUpdate,
+)
 from src.modules.todos.service import TodoService
 
 router = APIRouter(prefix="/todos", tags=["Todos"])
@@ -43,6 +49,9 @@ async def list_todos(
     current_user: CurrentUserDep,
     skip: Annotated[int, Query(ge=0, description="Nombre d'éléments à sauter")] = 0,
     limit: LimitQuery = 25,
+    owner_id: Annotated[
+        int | None, Query(description="Filtre sur le propriétaire (Seulement pour les admins)")
+    ] = None,
     title: Annotated[str | None, Query(min_length=2, description="Filtre sur le titre")] = None,
     is_completed: Annotated[
         bool | None, Query(description="Filtre sur le statut de complétion")
@@ -55,6 +64,7 @@ async def list_todos(
         current_user=current_user,
         skip=skip,
         limit=limit,
+        owner_id=owner_id,
         title=title,
         is_completed=is_completed,
         category_ids=category_ids,
@@ -79,6 +89,33 @@ async def create_todo(
 
 
 @router.get(
+    "/deleted",
+    response_model=PaginatedResponse[DeletedTodoResponse],
+    summary="Lister toutes les tâches supprimées",
+    description="Retourne une liste paginée de tâches supprimées.",
+)
+async def list_deleted_todos(
+    service: TodoServiceDep,
+    current_user: CurrentUserDep,
+    skip: Annotated[int, Query(ge=0, description="Nombre d'éléments à sauter")] = 0,
+    limit: LimitQuery = 25,
+    owner_id: Annotated[
+        int | None, Query(description="Filtre sur le propriétaire (Seulement pour les admins)")
+    ] = None,
+    title: Annotated[str | None, Query(min_length=2, description="Filtre sur le titre")] = None,
+) -> PaginatedResponse[DeletedTodoResponse]:
+    deleted_todos, total = await service.list_deleted_todos(
+        current_user=current_user,
+        skip=skip,
+        limit=limit,
+        owner_id=owner_id,
+        title=title,
+    )
+
+    return PaginatedResponse(items=deleted_todos, total=total, skip=skip, limit=limit)
+
+
+@router.get(
     "/{todo_id}",
     response_model=TodoResponse | TodoDetailResponse,
     summary="Afficher une tâche",
@@ -92,7 +129,7 @@ async def get_todo(
 ) -> TodoResponse | TodoDetailResponse:
     with_categories = include is not None and "categories" in include
     todo = await service.get_todo_or_404(
-        user=current_user, entity_id=todo_id, with_categories=with_categories
+        current_user=current_user, entity_id=todo_id, with_categories=with_categories
     )
 
     if with_categories:
@@ -112,7 +149,7 @@ async def update_todo(
     todo_id: int,
     data: TodoUpdate,
 ) -> Todo:
-    return await service.update_todo(user=current_user, entity_id=todo_id, data=data)
+    return await service.update_todo(current_user=current_user, entity_id=todo_id, data=data)
 
 
 @router.delete(
@@ -126,4 +163,18 @@ async def delete_todo(
     current_user: CurrentUserDep,
     todo_id: int,
 ) -> None:
-    await service.delete_todo(user=current_user, entity_id=todo_id)
+    await service.delete_todo(current_user=current_user, entity_id=todo_id)
+
+
+@router.post(
+    "/{todo_id}/restore",
+    response_model=TodoResponse,
+    summary="Restaurer une tâche",
+    description="Restaure une tâche supprimée.",
+)
+async def restore_todo(
+    service: TodoServiceDep,
+    current_user: CurrentUserDep,
+    todo_id: int,
+) -> Todo:
+    return await service.restore_todo(current_user=current_user, entity_id=todo_id)

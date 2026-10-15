@@ -70,8 +70,9 @@ async def _call_error(mcp: Client, tool: str, arguments: dict[str, Any]) -> str:
 # --- the tool surface ---
 
 
-async def test_exposes_the_nine_tools(server: MCPServer) -> None:
-    """One todo at a time can be deleted directly; there is no bulk or category deletion."""
+async def test_exposes_the_tools(server: MCPServer) -> None:
+    """One todo at a time can be deleted directly, and restored; there is no bulk or category
+    deletion."""
     async with Client(server) as mcp:
         names = {tool.name for tool in (await mcp.list_tools()).tools}
 
@@ -82,6 +83,8 @@ async def test_exposes_the_nine_tools(server: MCPServer) -> None:
         "update_todo",
         "complete_todo",
         "delete_todo",
+        "list_deleted_todos",
+        "restore_todo",
         "list_categories",
         "get_category",
         "create_category",
@@ -247,6 +250,52 @@ async def test_deleting_someone_elses_todo_is_an_api_error(
 
     async with Client(server) as mcp:
         message = await _call_error(mcp, "delete_todo", {"todo_id": todo.id})
+
+    assert "API error 404" in message
+
+
+async def test_list_deleted_todos_shows_only_the_token_owners_deleted_todos(
+    server: MCPServer, db_session: AsyncSession, current_user: User, other_user: User
+) -> None:
+    todos = TodoRepository(db_session)
+    await todos.delete(await todos.create(current_user.id, TodoCreate(title="Deleted"), []))
+    await todos.delete(await todos.create(other_user.id, TodoCreate(title="Not mine"), []))
+    await todos.create(current_user.id, TodoCreate(title="Live"), [])
+    await db_session.commit()
+
+    async with Client(server) as mcp:
+        page = await _call(mcp, "list_deleted_todos")
+
+    assert [item["title"] for item in page["items"]] == ["Deleted"]
+    assert page["items"][0]["deleted_at"] is not None
+
+
+async def test_restore_todo(
+    server: MCPServer, db_session: AsyncSession, current_user: User
+) -> None:
+    """The agent can undo a deletion, its own or the user's."""
+    todos = TodoRepository(db_session)
+    todo = await todos.create(current_user.id, TodoCreate(title="Back"), [])
+    await todos.delete(todo)
+    await db_session.commit()
+
+    async with Client(server) as mcp:
+        result = await _call(mcp, "restore_todo", {"todo_id": todo.id})
+
+    assert result["id"] == todo.id
+    assert result["title"] == "Back"
+
+
+async def test_restoring_someone_elses_todo_is_an_api_error(
+    server: MCPServer, db_session: AsyncSession, other_user: User
+) -> None:
+    todos = TodoRepository(db_session)
+    todo = await todos.create(other_user.id, TodoCreate(title="Theirs"), [])
+    await todos.delete(todo)
+    await db_session.commit()
+
+    async with Client(server) as mcp:
+        message = await _call_error(mcp, "restore_todo", {"todo_id": todo.id})
 
     assert "API error 404" in message
 

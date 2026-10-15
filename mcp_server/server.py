@@ -40,6 +40,8 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
 
     server = MCPServer("todo-api", lifespan=lifespan)
 
+    # --- TODOS ---
+
     @server.tool()
     async def create_todo(
         idempotency_key: Annotated[
@@ -173,6 +175,43 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
         return await api.request("PATCH", f"/todos/{todo_id}", json={"is_completed": True})
 
     @server.tool()
+    async def delete_todo(
+        todo_id: Annotated[int, Field(description="The ID of the todo to delete.")],
+    ) -> dict:
+        """Delete a specific todo for the current user."""
+        await api.request("DELETE", f"/todos/{todo_id}")
+        return {"deleted_todo_id": todo_id}
+
+    # --- Methods for deleted todos ---
+
+    @server.tool()
+    async def list_deleted_todos(
+        skip: Annotated[int, Field(ge=0, description="Number of elements to skip.")] = 0,
+        limit: PageLimit = 25,
+        title: Annotated[
+            str | None, Field(min_length=2, description="Filter on the title.")
+        ] = None,
+    ) -> dict:
+        """Return a paginated list of deleted todos for the current user."""
+        params = {
+            "skip": skip,
+            "limit": limit,
+            "title": title,
+        }
+        params = _filter_none_values(params)
+
+        return await api.request("GET", "/todos/deleted", params=params)
+
+    @server.tool()
+    async def restore_todo(
+        todo_id: Annotated[int, Field(description="The ID of the todo to restore.")],
+    ) -> dict:
+        """Restore a specific todo for the current user."""
+        return await api.request("POST", f"/todos/{todo_id}/restore")
+
+    # --- CATEGORIES ---
+
+    @server.tool()
     async def list_categories(
         skip: Annotated[int, Field(ge=0, description="Number of elements to skip.")] = 0,
         limit: PageLimit = 25,
@@ -228,13 +267,5 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
         body = {"name": name, "color": color}
         body = _filter_none_values(body)
         return await api.request("POST", "/categories", json=body, idempotency_key=idempotency_key)
-
-    @server.tool()
-    async def delete_todo(
-        todo_id: Annotated[int, Field(description="The ID of the todo to delete.")],
-    ) -> dict:
-        """Delete a specific todo for the current user."""
-        await api.request("DELETE", f"/todos/{todo_id}")
-        return {"deleted_todo_id": todo_id}
 
     return server
