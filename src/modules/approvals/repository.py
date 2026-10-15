@@ -1,12 +1,11 @@
 """Repository Pattern pour l'accès aux données de Approval requests."""
 
-from sqlalchemy import delete
 from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
 
 from pydantic import JsonValue
-from sqlalchemy import CursorResult, Select, func, select, update
+from sqlalchemy import CursorResult, Select, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.repository import BaseRepository, FilterParams
