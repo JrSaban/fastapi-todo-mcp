@@ -120,7 +120,7 @@ class TodoRepository(SoftDeleteRepository[Todo]):
             .values(deleted_at=datetime.now(UTC))
         )
         result = await self.session.execute(query)
-        return cast(CursorResult, result).rowcount
+        return cast(CursorResult[Todo], result).rowcount
 
     # --- CRUD for deleted entities ---
 

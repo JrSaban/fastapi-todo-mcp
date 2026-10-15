@@ -92,7 +92,7 @@ class SoftDeleteRepository[ModelT: Base](BaseRepository[ModelT]):
         column = getattr(self.model, self.soft_delete_column)
         query = delete(self.model).where(column < before)
         result = await self.session.execute(query)
-        return cast(CursorResult, result).rowcount
+        return cast(CursorResult[ModelT], result).rowcount
 
     async def restore(self, entity: ModelT) -> ModelT:
         """Restore a soft-deleted entity."""

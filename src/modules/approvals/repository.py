@@ -1,5 +1,6 @@
 """Repository Pattern pour l'accès aux données de Approval requests."""
 
+from sqlalchemy import delete
 from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
@@ -95,12 +96,18 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
             .execution_options(synchronize_session="fetch")
         )
         result = await self.session.execute(query)
-        return cast(CursorResult, result).rowcount == 1
+        return cast(CursorResult[ApprovalRequest], result).rowcount == 1
 
     async def set_result(self, entity: ApprovalRequest, result: dict[str, JsonValue]) -> None:
         """Set the result of an approval request."""
         entity.result = result
         await self.session.flush()
+
+    async def pruned_expired(self, before: datetime) -> int:
+        """Prune expired approval requests."""
+        query = delete(ApprovalRequest).where(ApprovalRequest.expires_at < before)
+        result = await self.session.execute(query)
+        return cast(CursorResult[ApprovalRequest], result).rowcount
 
     async def count(
         self,
