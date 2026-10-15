@@ -3,10 +3,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from src.core.config import settings
 from src.core.exceptions import ConflictError, NotFoundError
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest, ApprovalStatus
+from src.modules.approvals.repository import ApprovalRequestRepository
+from src.modules.approvals.schemas import ApprovalRequestResponse, ApprovalRequestState
 from src.modules.approvals.service import ApprovalRequestService
 from src.modules.users.models import User
 
@@ -33,16 +36,28 @@ def _request(status: ApprovalStatus = ApprovalStatus.PENDING, payload=None) -> A
 
 
 def _service(
-    repository: AsyncMock, todo_repository: AsyncMock | None = None
+    repository: AsyncMock,
+    todo_repository: AsyncMock | None = None,
+    user_repository: AsyncMock | None = None,
 ) -> ApprovalRequestService:
-    return ApprovalRequestService(repository, todo_repository or AsyncMock())
+    return ApprovalRequestService(
+        repository, todo_repository or AsyncMock(), user_repository or AsyncMock()
+    )
+
+
+def _repository_without_pending_request() -> AsyncMock:
+    """An AsyncMock's methods return a (truthy) mock by default: say explicitly that no request
+    is pending, or every creation would hit the one-pending-request conflict."""
+    repository = AsyncMock()
+    repository.get_pending.return_value = None
+    return repository
 
 
 # --- request_delete_completed_todos ---
 
 
 async def test_request_freezes_the_completed_todo_ids(regular_user: User):
-    repository = AsyncMock()
+    repository = _repository_without_pending_request()
     todo_repository = AsyncMock()
     todo_repository.get_completed_ids.return_value = [4, 3]
 
@@ -60,7 +75,7 @@ async def test_request_freezes_the_completed_todo_ids(regular_user: User):
 
 async def test_request_with_no_completed_todo_raises_conflict(regular_user: User):
     """An empty request would leave the human nothing to approve."""
-    repository = AsyncMock()
+    repository = _repository_without_pending_request()
     todo_repository = AsyncMock()
     todo_repository.get_completed_ids.return_value = []
 
@@ -68,6 +83,42 @@ async def test_request_with_no_completed_todo_raises_conflict(regular_user: User
         await _service(repository, todo_repository).request_delete_completed_todos(regular_user)
 
     repository.create.assert_not_called()
+
+
+async def test_request_while_one_is_pending_raises_conflict_with_its_id(regular_user: User):
+    """One pending request per action: the agent is pointed to the existing one, and nothing
+    else is read or written."""
+    repository = AsyncMock()
+    repository.get_pending.return_value = _request()
+    todo_repository = AsyncMock()
+
+    with pytest.raises(ConflictError, match="ID: 1"):
+        await _service(repository, todo_repository).request_delete_completed_todos(regular_user)
+
+    kwargs = repository.get_pending.call_args.kwargs
+    assert kwargs["owner_id"] == 1
+    assert kwargs["action"] == ApprovalAction.DELETE_COMPLETED_TODOS
+    todo_repository.get_completed_ids.assert_not_called()
+    repository.create.assert_not_called()
+
+
+async def test_request_locks_the_user_before_looking_for_a_pending_request(regular_user: User):
+    """The lock serializes concurrent creations, so the second one sees the first one's request.
+    SQLite ignores FOR UPDATE: only the order can be checked here."""
+    calls: list[str] = []
+    repository = AsyncMock()
+    repository.get_pending.side_effect = lambda **k: calls.append("get_pending")
+    user_repository = AsyncMock()
+    user_repository.lock.side_effect = lambda *a: calls.append("lock")
+    todo_repository = AsyncMock()
+    todo_repository.get_completed_ids.return_value = [3]
+
+    await _service(repository, todo_repository, user_repository).request_delete_completed_todos(
+        regular_user
+    )
+
+    user_repository.lock.assert_called_once_with(1)
+    assert calls == ["lock", "get_pending"]
 
 
 # --- approve ---
@@ -214,15 +265,29 @@ async def test_list_owner_filter_depends_on_role(is_admin: bool, expected_owner_
     repository.count.return_value = 0
 
     await _service(repository).list_approval_requests(
-        current_user=user, owner_id=5, status=ApprovalStatus.PENDING
+        current_user=user, owner_id=5, status=ApprovalRequestState.PENDING
     )
 
-    repository.get_all.assert_called_once_with(
-        skip=0, limit=25, owner_id=expected_owner_id, status=ApprovalStatus.PENDING
+    page_kwargs = repository.get_all.call_args.kwargs
+    count_kwargs = repository.count.call_args.kwargs
+    assert page_kwargs["owner_id"] == count_kwargs["owner_id"] == expected_owner_id
+    assert page_kwargs["status"] == count_kwargs["status"] == ApprovalRequestState.PENDING
+
+
+async def test_list_passes_the_same_now_to_the_page_and_its_total(regular_user: User):
+    """A request expiring between the two queries would otherwise be counted in one and not
+    the other."""
+    repository = AsyncMock()
+    repository.get_all.return_value = []
+    repository.count.return_value = 0
+
+    await _service(repository).list_approval_requests(
+        current_user=regular_user, status=ApprovalRequestState.EXPIRED
     )
-    repository.count.assert_called_once_with(
-        owner_id=expected_owner_id, status=ApprovalStatus.PENDING
-    )
+
+    now = repository.get_all.call_args.kwargs["now"]
+    assert isinstance(now, datetime)
+    assert repository.count.call_args.kwargs["now"] is now
 
 
 @pytest.mark.parametrize(("is_admin", "expected_owner_id"), [(False, 1), (True, None)])
@@ -235,3 +300,78 @@ async def test_get_or_404_owner_filter_depends_on_role(is_admin: bool, expected_
         await _service(repository).get_approval_request_or_404(current_user=user, entity_id=1)
 
     repository.get_by_id.assert_called_once_with(entity_id=1, owner_id=expected_owner_id)
+
+
+# --- prune_expired ---
+
+
+async def test_prune_expired_keeps_the_retention_after_expires_at():
+    """The cut-off is applied to expires_at, so a request stays APPROVAL_REQUEST_RETENTION_DAYS
+    after its expiry, whatever its status."""
+    repository = AsyncMock()
+    repository.prune_expired.return_value = 3
+
+    before = datetime.now(UTC)
+    result = await _service(repository).prune_expired()
+
+    assert result == {"approval_requests": 3}
+    cutoff = repository.prune_expired.call_args.kwargs["before"]
+    expected = before - timedelta(days=settings.APPROVAL_REQUEST_RETENTION_DAYS)
+    assert expected <= cutoff <= expected + timedelta(seconds=5)
+
+
+# --- the status filter (repository) ---
+
+
+@pytest.mark.parametrize("state", [ApprovalRequestState.PENDING, ApprovalRequestState.EXPIRED])
+def test_filtering_on_a_date_dependent_status_without_now_fails(state: ApprovalRequestState):
+    """Without `now`, these two filters can't be applied: failing beats silently dropping the
+    filter and returning every request."""
+    repository = ApprovalRequestRepository(AsyncMock())
+
+    with pytest.raises(ValueError):
+        repository._apply_filters(select(ApprovalRequest), status=state)
+
+
+@pytest.mark.parametrize("state", [ApprovalRequestState.APPROVED, ApprovalRequestState.REJECTED])
+def test_filtering_on_a_decided_status_needs_no_now(state: ApprovalRequestState):
+    repository = ApprovalRequestRepository(AsyncMock())
+
+    query = repository._apply_filters(select(ApprovalRequest), status=state)
+
+    assert "status" in str(query.whereclause)
+
+
+# --- the status shown in responses ---
+
+
+def _response(status: ApprovalStatus, expires_at: datetime) -> ApprovalRequestResponse:
+    request = _request(status=status)
+    request.expires_at = expires_at
+    request.created_at = datetime.now(UTC)
+    return ApprovalRequestResponse.model_validate(request)
+
+
+@pytest.mark.parametrize(
+    "expires_at",
+    [
+        datetime.now(UTC) - timedelta(minutes=1),  # aware, as Postgres returns it
+        datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1),  # naive, as SQLite does
+    ],
+)
+def test_a_pending_request_past_its_expiry_is_shown_expired(expires_at: datetime):
+    assert _response(ApprovalStatus.PENDING, expires_at).status == ApprovalRequestState.EXPIRED
+
+
+def test_a_pending_request_before_its_expiry_stays_pending():
+    response = _response(ApprovalStatus.PENDING, datetime.now(UTC) + timedelta(days=1))
+
+    assert response.status == ApprovalRequestState.PENDING
+
+
+@pytest.mark.parametrize("status", [ApprovalStatus.APPROVED, ApprovalStatus.REJECTED])
+def test_a_decided_request_keeps_its_status_after_its_expiry(status: ApprovalStatus):
+    """Expiry only concerns a request nobody decided: an approval stays an approval."""
+    response = _response(status, datetime.now(UTC) - timedelta(days=1))
+
+    assert response.status == ApprovalRequestState(status.value)

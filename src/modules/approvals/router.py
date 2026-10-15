@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, Query
 
 from src.core.database import DbSessionDep
 from src.core.schemas import LimitQuery, PaginatedResponse
-from src.modules.approvals.models import ApprovalStatus
 from src.modules.approvals.repository import ApprovalRequestRepository
-from src.modules.approvals.schemas import ApprovalRequestResponse
+from src.modules.approvals.schemas import ApprovalRequestResponse, ApprovalRequestState
 from src.modules.approvals.service import ApprovalRequestService
 from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.todos.repository import TodoRepository
+from src.modules.users.repository import UserRepository
 
 router = APIRouter(prefix="/approval-requests", tags=["ApprovalRequests"])
 
@@ -22,7 +22,8 @@ def get_approval_request_service(
 ) -> ApprovalRequestService:
     repository = ApprovalRequestRepository(session)
     todo_repository = TodoRepository(session)
-    return ApprovalRequestService(repository, todo_repository)
+    user_repository = UserRepository(session)
+    return ApprovalRequestService(repository, todo_repository, user_repository)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)
@@ -44,7 +45,8 @@ async def list_approval_requests(
         int | None, Query(description="Filtre sur le propriétaire (Seulement pour les admins)")
     ] = None,
     status: Annotated[
-        ApprovalStatus | None, Query(description="Filtre sur le statut de la demande d'approbation")
+        ApprovalRequestState | None,
+        Query(description="Filtre sur le statut de la demande d'approbation"),
     ] = None,
 ) -> PaginatedResponse[ApprovalRequestResponse]:
     approval_requests, total = await service.list_approval_requests(
@@ -99,7 +101,7 @@ async def approve_request(
 )
 async def reject_request(
     service: ApprovalRequestServiceDep,
-    current_user: SessionUserDep,
+    current_user: CurrentUserDep,
     request_id: int,
 ) -> ApprovalRequestResponse:
     approval_request = await service.reject(current_user=current_user, entity_id=request_id)

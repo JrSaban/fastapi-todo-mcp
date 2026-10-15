@@ -104,7 +104,7 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         """Delete all API tokens for an owner."""
         query = delete(ApiToken).where(ApiToken.owner_id == owner_id)
         result = await self.session.execute(query)
-        return cast(CursorResult, result).rowcount
+        return cast(CursorResult[ApiToken], result).rowcount
 
     async def delete_expired_before(self, before: datetime) -> int:
         """Delete all expired API tokens before a given date."""
@@ -113,4 +113,4 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
             ApiToken.expires_at < before,
         )
         result = await self.session.execute(query)
-        return cast(CursorResult, result).rowcount
+        return cast(CursorResult[ApiToken], result).rowcount

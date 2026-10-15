@@ -58,6 +58,7 @@ class Settings(BaseSettings):
 
     # Approvals requests
     APPROVAL_REQUEST_EXPIRE_DAYS: int = 7
+    APPROVAL_REQUEST_RETENTION_DAYS: int = 90
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod
