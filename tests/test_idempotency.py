@@ -60,6 +60,21 @@ async def test_replay_returns_stored_response_without_duplicate(
     assert await _todo_count(authenticated_client) == 1
 
 
+async def test_lowercase_bearer_scheme_is_still_deduplicated(
+    authenticated_client: AsyncClient, current_user: User
+) -> None:
+    """The route accepts `bearer` in lowercase: the middleware must see the user too, or the
+    client would believe it is protected from duplicates while two todos get created."""
+    headers = _headers(current_user.id)
+    headers["Authorization"] = headers["Authorization"].replace("Bearer ", "bearer ", 1)
+
+    await authenticated_client.post(TODOS_PATH, content=TODO_BODY, headers=headers)
+    second = await authenticated_client.post(TODOS_PATH, content=TODO_BODY, headers=headers)
+
+    assert second.headers["Idempotent-Replayed"] == "true"
+    assert await _todo_count(authenticated_client) == 1
+
+
 async def test_without_header_requests_are_not_deduplicated(
     authenticated_client: AsyncClient, current_user: User
 ) -> None:
