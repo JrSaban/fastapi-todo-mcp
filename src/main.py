@@ -8,6 +8,7 @@ import jwt
 import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.security.utils import get_authorization_scheme_param
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -135,12 +136,12 @@ async def _request_user_id(request: Request) -> str | None:
     if hasattr(request.state, "user_id"):
         return request.state.user_id
 
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    scheme, token = get_authorization_scheme_param(request.headers.get("Authorization"))
+
+    if scheme.lower() != "bearer" or not token:
         request.state.auth_method = None
         return None
 
-    token = auth_header.removeprefix("Bearer ")
     if token.startswith(API_TOKEN_PREFIX):
         request.state.auth_method = "api_token"
         user_id = await _user_id_from_api_token(token)

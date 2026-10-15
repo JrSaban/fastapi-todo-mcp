@@ -86,6 +86,30 @@ async def test_valid_token_is_counted_per_user(
     assert await redis_client.get(IP_KEY) is None
 
 
+@pytest.mark.parametrize("scheme", ["bearer", "BEARER"])
+async def test_scheme_case_does_not_matter(
+    client: AsyncClient, redis_client: fakeredis.FakeAsyncRedis, scheme: str
+) -> None:
+    """The routes accept the scheme in any case (HTTPBearer): the middleware must read the
+    same user, or switching case would hand the user a second quota counted by IP."""
+    token = create_access_token({"sub": "42"})
+
+    await client.get(COUNTED_PATH, headers={"Authorization": f"{scheme} {token}"})
+
+    assert await redis_client.get("rate_limit:general:user:42") == "1"
+    assert await redis_client.get(IP_KEY) is None
+
+
+@pytest.mark.parametrize("header", ["Bearer", "Bearer ", "Basic abc"])
+async def test_no_bearer_token_is_counted_by_ip(
+    client: AsyncClient, redis_client: fakeredis.FakeAsyncRedis, header: str
+) -> None:
+    """No token after the scheme, or another scheme: no user, the request counts by IP."""
+    await client.get(COUNTED_PATH, headers={"Authorization": header})
+
+    assert await redis_client.get(IP_KEY) == "1"
+
+
 async def test_exhausted_user_does_not_block_same_ip(
     client: AsyncClient, redis_client: fakeredis.FakeAsyncRedis
 ) -> None:

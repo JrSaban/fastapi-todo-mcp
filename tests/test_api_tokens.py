@@ -567,6 +567,19 @@ async def test_api_token_create_without_idempotency_key_returns_400(
     assert response.status_code == 400
 
 
+async def test_api_token_with_lowercase_scheme_still_needs_an_idempotency_key(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """`bearer` authenticates on the route like `Bearer`: it must not skip the key check."""
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.post(
+        TODOS_PATH, json={"title": "No key"}, headers={"Authorization": f"bearer {plain}"}
+    )
+
+    assert response.status_code == 400
+
+
 async def test_access_token_create_without_idempotency_key_still_works(
     client: AsyncClient, current_user: User
 ) -> None:

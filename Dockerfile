@@ -2,7 +2,7 @@
 FROM python:3.12-slim
 
 # On récupère le binaire 'uv' directement depuis l'image officielle Astral
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
 
 # Répertoire de travail dans le conteneur
 WORKDIR /app
