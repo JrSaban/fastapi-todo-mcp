@@ -116,8 +116,8 @@ class ApprovalRequestService:
 
     async def prune_expired(self) -> dict[str, int]:
         """Prune expired approval requests."""
-        cutoff_date = datetime.now(UTC) - timedelta(days=settings.APPROVAL_REQUEST_EXPIRE_DAYS)
-        requests_deleted = await self.repository.pruned_expired(before=cutoff_date)
+        cutoff_date = datetime.now(UTC) - timedelta(days=settings.APPROVAL_REQUEST_RETENTION_DAYS)
+        requests_deleted = await self.repository.prune_expired(before=cutoff_date)
 
         return {
             "approval_requests": requests_deleted,

@@ -11,7 +11,7 @@ from src.modules.approvals.service import ApprovalRequestService
 from src.modules.todos.repository import TodoRepository
 
 
-@broker.task(task_name="approval_requests:prune_expired", schedule=[{"cron": "0 3 1 * *"}])
+@broker.task(task_name="approvals:prune_expired", schedule=[{"cron": "0 3 1 * *"}])
 async def prune_expired_requests() -> dict[str, int]:
     """Prune expired approval requests."""
     async with async_session_factory() as session:

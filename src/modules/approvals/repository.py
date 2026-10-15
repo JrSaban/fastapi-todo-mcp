@@ -102,7 +102,7 @@ class ApprovalRequestRepository(BaseRepository[ApprovalRequest]):
         entity.result = result
         await self.session.flush()
 
-    async def pruned_expired(self, before: datetime) -> int:
+    async def prune_expired(self, before: datetime) -> int:
         """Prune expired approval requests."""
         query = delete(ApprovalRequest).where(ApprovalRequest.expires_at < before)
         result = await self.session.execute(query)
