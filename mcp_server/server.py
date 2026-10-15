@@ -4,7 +4,8 @@ Serveur MCP : les outils qu'un agent IA peut appeler sur l'API Todo.
 Chaque outil est un simple appel HTTP à l'API, avec le jeton d'API de l'utilisateur : le serveur
 n'importe jamais `src/`, pour que l'agent passe par les mêmes règles que tout client (permissions,
 rate limiting, idempotence). Les noms, docstrings et descriptions des paramètres sont en anglais :
-c'est ce que l'agent lit pour choisir un outil et le remplir. Pas d'outil de suppression.
+c'est ce que l'agent lit pour choisir un outil et le remplir. Suppression d'un todo à la fois
+uniquement : une action en masse passera par une validation humaine.
 """
 
 from collections.abc import AsyncGenerator
@@ -227,5 +228,13 @@ def build_mcp_server(api: TodoApiClient) -> MCPServer:
         body = {"name": name, "color": color}
         body = _filter_none_values(body)
         return await api.request("POST", "/categories", json=body, idempotency_key=idempotency_key)
+
+    @server.tool()
+    async def delete_todo(
+        todo_id: Annotated[int, Field(description="The ID of the todo to delete.")],
+    ) -> dict:
+        """Delete a specific todo for the current user."""
+        await api.request("DELETE", f"/todos/{todo_id}")
+        return {"deleted_todo_id": todo_id}
 
     return server
