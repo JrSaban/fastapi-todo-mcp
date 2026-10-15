@@ -113,3 +113,7 @@ class ApprovalRequestService:
     async def reject(self, current_user: User, entity_id: int) -> ApprovalRequest:
         """Reject an approval request."""
         return await self._decide(current_user, entity_id, ApprovalStatus.REJECTED)
+
+    async def prune_expired_requests(self, before: datetime) -> int:
+        """Prune expired approval requests."""
+        return await self.repository.pruned_expired(before)
