@@ -101,7 +101,7 @@ async def approve_request(
 )
 async def reject_request(
     service: ApprovalRequestServiceDep,
-    current_user: SessionUserDep,
+    current_user: CurrentUserDep,
     request_id: int,
 ) -> ApprovalRequestResponse:
     approval_request = await service.reject(current_user=current_user, entity_id=request_id)
