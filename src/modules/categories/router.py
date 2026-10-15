@@ -110,7 +110,7 @@ async def list_todos_by_category(
 )
 async def update_category(
     service: CategoryServiceDep,
-    current_user: CurrentUserDep,
+    current_user: SessionUserDep,
     category_id: int,
     data: CategoryUpdate,
 ) -> Category:
