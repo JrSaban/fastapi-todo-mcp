@@ -16,6 +16,8 @@ from src.core.rate_limit import get_retry_after, increment_rate_limit
 from src.core.redis import get_redis_client
 from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
 from src.modules.api_tokens.repository import ApiTokenRepository
+from src.modules.audit.context import Actor, current_actor
+from src.modules.audit.models import AuditAuthMethod
 from src.modules.auth.schemas import LoginRequest, RefreshTokenRequest, TokenResponse
 from src.modules.auth.service import AuthService
 from src.modules.users.models import User
@@ -57,6 +59,10 @@ async def _user_from_access_token(token: str, session: AsyncSession) -> User:
     if user is None or not user.is_active:
         raise UnauthorizedError("Utilisateur introuvable ou inactif.")
 
+    current_actor.set(
+        Actor(user_id=user.id, auth_method=AuditAuthMethod.SESSION, api_token_id=None)
+    )
+
     return user
 
 
@@ -78,6 +84,10 @@ async def _user_from_api_token(token: str, session: AsyncSession) -> User:
 
     older_than = now - timedelta(hours=1)
     await api_token_repository.touch_last_used(api_token.id, now, older_than)
+
+    current_actor.set(
+        Actor(user_id=user.id, auth_method=AuditAuthMethod.API_TOKEN, api_token_id=api_token.id)
+    )
 
     return user
 
