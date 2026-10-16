@@ -9,6 +9,8 @@ suffit d'avoir ces attributs. Le service d'audit en déduit seul la ressource et
 
 from typing import ClassVar, Protocol
 
+from sqlalchemy.orm import Mapped
+
 from src.modules.audit.models import AuditResourceType
 
 
@@ -21,10 +23,7 @@ class Auditable(Protocol):
 
     audit_resource_type: ClassVar[AuditResourceType]
 
-    @property
-    def id(self) -> int:
-        """ID of the resource."""
-        ...
+    id: Mapped[int]
 
     @property
     def audit_owner_id(self) -> int:
