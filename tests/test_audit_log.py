@@ -108,6 +108,43 @@ async def test_unknown_category_ids_are_not_a_change(
     assert await _entries(db_session) == []
 
 
+async def test_null_category_ids_is_not_a_change(
+    authenticated_client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """`null` leaves the categories untouched, unlike `[]`: the request succeeds and nothing is
+    recorded."""
+    category = await CategoryRepository(db_session).create(
+        current_user.id, CategoryCreate(name="Maison")
+    )
+    todo = await TodoRepository(db_session).create(
+        current_user.id, TodoCreate(title="Tâche"), [category]
+    )
+
+    response = await authenticated_client.patch(
+        f"{TODOS_PATH}/{todo.id}", json={"category_ids": None}
+    )
+
+    assert response.status_code == 200
+    assert await _entries(db_session) == []
+
+
+async def test_emptying_the_categories_records_category_ids(
+    authenticated_client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """An empty list removes every category: that is a change."""
+    category = await CategoryRepository(db_session).create(
+        current_user.id, CategoryCreate(name="Maison")
+    )
+    todo = await TodoRepository(db_session).create(
+        current_user.id, TodoCreate(title="Tâche"), [category]
+    )
+
+    await authenticated_client.patch(f"{TODOS_PATH}/{todo.id}", json={"category_ids": []})
+
+    [entry] = await _entries(db_session)
+    assert entry.changed_fields == ["category_ids"]
+
+
 async def test_deleting_and_restoring_are_recorded(
     authenticated_client: AsyncClient, db_session: AsyncSession, current_user: User
 ) -> None:
