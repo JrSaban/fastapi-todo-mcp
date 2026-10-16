@@ -5,9 +5,8 @@ Encapsule les requêtes SQL (SQLAlchemy 2.0 select, add, delete).
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import cast
 
-from sqlalchemy import CursorResult, Select, and_, func, select, update
+from sqlalchemy import Select, and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -107,7 +106,7 @@ class TodoRepository(SoftDeleteRepository[Todo]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
-    async def delete_completed(self, todo_ids: Sequence[int], owner_id: int) -> int:
+    async def delete_completed(self, todo_ids: Sequence[int], owner_id: int) -> Sequence[int]:
         """Soft delete many todos."""
         query = (
             update(Todo)
@@ -118,9 +117,10 @@ class TodoRepository(SoftDeleteRepository[Todo]):
                 Todo.is_completed.is_(True),
             )
             .values(deleted_at=datetime.now(UTC))
+            .returning(Todo.id)
         )
         result = await self.session.execute(query)
-        return cast(CursorResult[Todo], result).rowcount
+        return result.scalars().all()
 
     # --- CRUD for deleted entities ---
 
