@@ -1,5 +1,6 @@
 """Service Layer (Logique métier pour l'ApiToken)."""
 
+from src.modules.audit.service import AuditLogService
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -18,9 +19,15 @@ from src.modules.users.repository import UserRepository
 
 
 class ApiTokenService:
-    def __init__(self, repository: ApiTokenRepository, user_repository: UserRepository) -> None:
+    def __init__(
+        self,
+        repository: ApiTokenRepository,
+        user_repository: UserRepository,
+        audit_service: AuditLogService,
+    ) -> None:
         self.repository = repository
         self.user_repository = user_repository
+        self.audit = audit_service
 
     async def create_token(self, current_user: User, data: ApiTokenCreate) -> tuple[ApiToken, str]:
         """Create a new API token for the current user."""
@@ -46,6 +53,7 @@ class ApiTokenService:
             expires_at=expires_at,
         )
 
+        await self.audit.log_created(new_api_token)
         return new_api_token, plain_token
 
     async def list_tokens(self, current_user: User) -> Sequence[ApiToken]:
@@ -59,9 +67,11 @@ class ApiTokenService:
             raise NotFoundError("Token introuvable.")
 
         await self.repository.delete(token)
+        await self.audit.log_deleted(token)
 
     async def revoke_all(self, current_user: User) -> int:
         """Revoke all API tokens for the current user."""
+        #TODO audit log
         return await self.repository.delete_all_for_owner(current_user.id)
 
     async def prune_expired(self) -> dict[str, int]:
