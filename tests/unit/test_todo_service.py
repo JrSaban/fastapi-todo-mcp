@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.core.exceptions import NotFoundError
+from src.modules.categories.models import Category
 from src.modules.todos.models import Todo
 from src.modules.todos.schemas import TodoCreate, TodoUpdate
 from src.modules.todos.service import TodoService
@@ -36,7 +37,9 @@ async def test_list_todos_owner_filter_depends_on_role(is_admin, expected_owner_
     mock_todo_repo.get_all.return_value = fake_todos
     mock_todo_repo.count.return_value = 1
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     todos, total = await service.list_todos(
         current_user=user,
@@ -75,7 +78,9 @@ async def test_list_todos_owner_id_filter_only_applies_to_admins(is_admin, expec
     mock_todo_repo.get_all.return_value = []
     mock_todo_repo.count.return_value = 0
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     await service.list_todos(current_user=user, owner_id=5)
 
@@ -91,7 +96,9 @@ async def test_get_todo_or_404_returns_todo_when_found(regular_user: User):
     mock_todo_repo = AsyncMock()
     mock_todo_repo.get_by_id.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     result = await service.get_todo_or_404(current_user=regular_user, entity_id=1)
 
@@ -103,7 +110,9 @@ async def test_get_todo_or_404_raises_when_not_found(regular_user: User):
     mock_todo_repo = AsyncMock()
     mock_todo_repo.get_by_id.return_value = None
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     with pytest.raises(NotFoundError):
         await service.get_todo_or_404(current_user=regular_user, entity_id=1)
@@ -116,7 +125,9 @@ async def test_get_todo_by_another_user_raises_not_found_error(regular_user: Use
     mock_todo_repo.get_by_id.return_value = None
     regular_user.id = 2
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     with pytest.raises(NotFoundError):
         await service.get_todo_or_404(current_user=regular_user, entity_id=1)
@@ -129,7 +140,9 @@ async def test_get_todo_by_admin_returns_todo(admin_user: User):
     fake_todo = Todo(id=1, owner_id=1, title="Test")
     mock_todo_repo.get_by_id.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     result = await service.get_todo_or_404(current_user=admin_user, entity_id=1)
 
@@ -145,7 +158,9 @@ async def test_get_todo_or_404_forwards_with_categories(regular_user):
     mock_todo_repo = AsyncMock()
     mock_todo_repo.get_by_id.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     result = await service.get_todo_or_404(
         current_user=regular_user, entity_id=1, with_categories=True
@@ -163,7 +178,9 @@ async def test_create_todo_resolves_categories(regular_user: User):
     mock_category_repo = AsyncMock()
     mock_category_repo.get_by_ids.return_value = ["cat1", "cat2"]
 
-    service = TodoService(repository=mock_todo_repo, category_repository=mock_category_repo)
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=mock_category_repo, audit_service=AsyncMock()
+    )
     data = TodoCreate(title="Test", category_ids=[1, 2])
 
     await service.create_todo(owner_id=regular_user.id, data=data)
@@ -178,7 +195,9 @@ async def test_create_todo_without_categories(regular_user):
     mock_category_repo = AsyncMock()
     mock_category_repo.get_by_ids.return_value = []
 
-    service = TodoService(repository=mock_todo_repo, category_repository=mock_category_repo)
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=mock_category_repo, audit_service=AsyncMock()
+    )
     data = TodoCreate(title="Test")
 
     await service.create_todo(owner_id=regular_user.id, data=data)
@@ -193,12 +212,15 @@ async def test_create_todo_without_categories(regular_user):
 async def test_update_todo_resolves_categories(regular_user: User):
     mock_todo_repo = AsyncMock()
     mock_category_repo = AsyncMock()
-    mock_category_repo.get_by_ids.return_value = ["cat1", "cat2"]
-    fake_todo = Todo(id=1, owner_id=1, title="Test")
+    categories = [Category(id=1, name="A"), Category(id=2, name="B")]
+    mock_category_repo.get_by_ids.return_value = categories
+    fake_todo = Todo(id=1, owner_id=1, title="Test", categories=[])
     mock_todo_repo.get_by_id.return_value = fake_todo
     mock_todo_repo.update.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=mock_category_repo)
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=mock_category_repo, audit_service=AsyncMock()
+    )
     data = TodoUpdate(title="Test", category_ids=[1, 2])
 
     result = await service.update_todo(current_user=regular_user, entity_id=1, data=data)
@@ -206,7 +228,7 @@ async def test_update_todo_resolves_categories(regular_user: User):
     assert result == fake_todo
     mock_todo_repo.get_by_id.assert_called_once_with(owner_id=1, entity_id=1, with_categories=True)
     mock_category_repo.get_by_ids.assert_called_once_with([1, 2])
-    mock_todo_repo.update.assert_called_once_with(fake_todo, data, ["cat1", "cat2"])
+    mock_todo_repo.update.assert_called_once_with(fake_todo, data, categories)
 
 
 async def test_update_todo_without_categories(regular_user: User):
@@ -216,7 +238,9 @@ async def test_update_todo_without_categories(regular_user: User):
     mock_todo_repo.get_by_id.return_value = fake_todo
     mock_todo_repo.update.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=mock_category_repo)
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=mock_category_repo, audit_service=AsyncMock()
+    )
     data = TodoUpdate(title="Test")
 
     result = await service.update_todo(current_user=regular_user, entity_id=1, data=data)
@@ -232,7 +256,9 @@ async def test_update_todo_of_another_user_raises_not_found_error(regular_user):
     mock_category_repo = AsyncMock()
     mock_todo_repo.get_by_id.return_value = None
 
-    service = TodoService(repository=mock_todo_repo, category_repository=mock_category_repo)
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=mock_category_repo, audit_service=AsyncMock()
+    )
 
     with pytest.raises(NotFoundError):
         await service.update_todo(
@@ -252,7 +278,9 @@ async def test_update_todo_as_admin_on_another_users_todo(admin_user):
     mock_todo_repo.get_by_id.return_value = fake_todo
     mock_todo_repo.update.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
     data = TodoUpdate(title="Edited")
 
     result = await service.update_todo(current_user=admin_user, entity_id=1, data=data)
@@ -272,7 +300,9 @@ async def test_delete_todo_calls_repo_delete_when_found(regular_user: User):
     fake_todo = Todo(id=1, owner_id=1, title="Test")
     mock_todo_repo.get_by_id.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     await service.delete_todo(current_user=regular_user, entity_id=1)
 
@@ -284,7 +314,9 @@ async def test_delete_todo_of_another_user_raises_not_found_error(regular_user):
     mock_todo_repo = AsyncMock()
     mock_todo_repo.get_by_id.return_value = None
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     with pytest.raises(NotFoundError):
         await service.delete_todo(current_user=regular_user, entity_id=99)
@@ -297,7 +329,9 @@ async def test_delete_todo_as_admin_on_another_users_todo(admin_user):
     mock_todo_repo = AsyncMock()
     mock_todo_repo.get_by_id.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     await service.delete_todo(current_user=admin_user, entity_id=1)
 
@@ -313,9 +347,11 @@ async def test_delete_todo_as_admin_on_another_users_todo(admin_user):
 async def test_delete_completed_todos_deletes_the_users_completed_todos(regular_user: User):
     mock_todo_repo = AsyncMock()
     mock_todo_repo.get_completed_ids.return_value = [3, 4]
-    mock_todo_repo.delete_completed.return_value = 2
+    mock_todo_repo.delete_completed.return_value = [3, 4]
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     assert await service.delete_completed_todos(current_user=regular_user) == 2
     mock_todo_repo.get_completed_ids.assert_called_once_with(owner_id=1)
@@ -339,7 +375,9 @@ async def test_list_deleted_todos_owner_filter_depends_on_role(is_admin, expecte
     mock_todo_repo.get_all_deleted.return_value = fake_todos
     mock_todo_repo.count.return_value = 1
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     todos, total = await service.list_deleted_todos(
         current_user=user, skip=5, limit=10, owner_id=5, title="Te"
@@ -372,7 +410,9 @@ async def test_restore_todo_restores_the_deleted_todo(is_admin, expected_owner_i
     mock_todo_repo.get_deleted_by_id.return_value = fake_todo
     mock_todo_repo.restore.return_value = fake_todo
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     result = await service.restore_todo(current_user=user, entity_id=1)
 
@@ -388,7 +428,9 @@ async def test_restore_todo_not_found_raises_not_found_error(regular_user: User)
     mock_todo_repo = AsyncMock()
     mock_todo_repo.get_deleted_by_id.return_value = None
 
-    service = TodoService(repository=mock_todo_repo, category_repository=AsyncMock())
+    service = TodoService(
+        repository=mock_todo_repo, category_repository=AsyncMock(), audit_service=AsyncMock()
+    )
 
     with pytest.raises(NotFoundError):
         await service.restore_todo(current_user=regular_user, entity_id=99)
