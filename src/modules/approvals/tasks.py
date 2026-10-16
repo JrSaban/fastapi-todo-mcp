@@ -4,12 +4,12 @@ Jobs du module approvals, exécutés par le worker Taskiq.
 Chaque job ouvre sa propre session et commit lui-même : le worker n'a ni FastAPI ni DbSessionDep.
 """
 
-from src.modules.audit.service import AuditLogService
-from src.modules.audit.repository import AuditLogRepository
 from src.core.broker import broker
 from src.core.database import async_session_factory
 from src.modules.approvals.repository import ApprovalRequestRepository
 from src.modules.approvals.service import ApprovalRequestService
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.todos.repository import TodoRepository
 from src.modules.users.repository import UserRepository
 
@@ -22,7 +22,7 @@ async def prune_expired_requests() -> dict[str, int]:
             repository=ApprovalRequestRepository(session),
             todo_repository=TodoRepository(session),
             user_repository=UserRepository(session),
-            audit_service=AuditLogService(repository=AuditLogRepository(session))
+            audit_service=AuditLogService(repository=AuditLogRepository(session)),
         )
 
         result = await approval_service.prune_expired()

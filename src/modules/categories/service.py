@@ -2,8 +2,6 @@
 Service Layer (Logique métier pour les Categories).
 """
 
-from src.modules.audit.changes import changed_fields
-from src.modules.audit.service import AuditLogService
 import json
 from collections.abc import Sequence
 from typing import Any, cast
@@ -16,6 +14,8 @@ from sqlalchemy.exc import IntegrityError
 
 from src.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from src.core.redis import hash_redis_key
+from src.modules.audit.changes import changed_fields
+from src.modules.audit.service import AuditLogService
 from src.modules.categories.models import Category
 from src.modules.categories.repository import CategoryRepository
 from src.modules.categories.schemas import CategoryCreate, CategoryResponse, CategoryUpdate
@@ -28,10 +28,7 @@ logger = structlog.get_logger()
 
 class CategoryService:
     def __init__(
-        self,
-        repository: CategoryRepository,
-        redis_client: Redis,
-        audit_service: AuditLogService
+        self, repository: CategoryRepository, redis_client: Redis, audit_service: AuditLogService
     ) -> None:
         self.repository = repository
         self.redis_client = redis_client

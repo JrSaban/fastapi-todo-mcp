@@ -1,7 +1,5 @@
 """Routing & Controller Layer pour le domaine API tokens."""
 
-from src.modules.audit.repository import AuditLogRepository
-from src.modules.audit.service import AuditLogService
 from collections.abc import Sequence
 from typing import Annotated
 
@@ -15,6 +13,8 @@ from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.schemas import ApiTokenCreate, ApiTokenCreatedResponse, ApiTokenResponse
 from src.modules.api_tokens.service import ApiTokenService
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import (
     CurrentUserDep,
     SensitiveActionRateLimitDep,

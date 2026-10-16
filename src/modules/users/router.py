@@ -1,7 +1,5 @@
 """Routing & Controller Layer pour le domaine Users."""
 
-from src.modules.audit.repository import AuditLogRepository
-from src.modules.audit.service import AuditLogService
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -12,6 +10,8 @@ from src.core.exceptions import InvalidPasswordError
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.api_tokens.router import ApiTokenServiceDep
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import (
     AuthServiceDep,
     CurrentUserDep,

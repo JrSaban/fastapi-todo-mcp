@@ -1,8 +1,5 @@
 """Service Layer (Logique métier pour les ApprovalRequests)."""
 
-from src.modules.audit.models import AuditAction
-from src.modules.audit.models import AuditResourceType
-from src.modules.audit.service import AuditLogService
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import assert_never
@@ -14,6 +11,8 @@ from src.core.exceptions import ConflictError, NotFoundError
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest, ApprovalStatus
 from src.modules.approvals.repository import ApprovalRequestRepository
 from src.modules.approvals.schemas import ApprovalRequestState
+from src.modules.audit.models import AuditAction, AuditResourceType
+from src.modules.audit.service import AuditLogService
 from src.modules.todos.repository import TodoRepository
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
@@ -27,7 +26,7 @@ class ApprovalRequestService:
         repository: ApprovalRequestRepository,
         todo_repository: TodoRepository,
         user_repository: UserRepository,
-        audit_service: AuditLogService
+        audit_service: AuditLogService,
     ) -> None:
         self.repository = repository
         self.todo_repository = todo_repository
@@ -62,7 +61,7 @@ class ApprovalRequestService:
                 deleted_todo_ids = await self.todo_repository.delete_completed(
                     todo_ids=todo_ids, owner_id=request.owner_id
                 )
-                
+
                 for todo_id in deleted_todo_ids:
                     await self.audit.record(
                         resource_type=AuditResourceType.TODO,
@@ -70,7 +69,7 @@ class ApprovalRequestService:
                         resource_owner_id=request.owner_id,
                         action=AuditAction.DELETED,
                     )
-                
+
                 return {"deleted_count": len(deleted_todo_ids)}
             case _:
                 assert_never(request.action)

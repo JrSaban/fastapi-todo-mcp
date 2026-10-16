@@ -1,7 +1,5 @@
 """Routing & Controller Layer pour le domaine Approvals."""
 
-from src.modules.audit.repository import AuditLogRepository
-from src.modules.audit.service import AuditLogService
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -11,6 +9,8 @@ from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.approvals.repository import ApprovalRequestRepository
 from src.modules.approvals.schemas import ApprovalRequestResponse, ApprovalRequestState
 from src.modules.approvals.service import ApprovalRequestService
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.todos.repository import TodoRepository
 from src.modules.users.repository import UserRepository

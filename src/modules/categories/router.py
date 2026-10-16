@@ -2,8 +2,6 @@
 Routing & Controller Layer pour le domaine Categories.
 """
 
-from src.modules.audit.repository import AuditLogRepository
-from src.modules.audit.service import AuditLogService
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -12,6 +10,8 @@ from redis.asyncio import Redis
 from src.core.database import DbSessionDep
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.categories.models import Category
 from src.modules.categories.repository import CategoryRepository

@@ -1,13 +1,13 @@
 """Service Layer (Logique métier pour les Users)."""
 
-from src.modules.audit.changes import changed_fields
-from src.modules.audit.service import AuditLogService
 from collections.abc import Sequence
 
 from sqlalchemy.exc import IntegrityError
 
 from src.core.exceptions import ConflictError, ForbiddenError, InvalidPasswordError, NotFoundError
 from src.core.security import hash_password, verify_password
+from src.modules.audit.changes import changed_fields
+from src.modules.audit.service import AuditLogService
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 from src.modules.users.schemas import (
@@ -175,7 +175,7 @@ class UserService:
 
         changed_fields = []
         user = await self.get_user_or_404(current_user, entity_id)
-        
+
         if user.is_admin != is_admin:
             changed_fields.append("is_admin")
 

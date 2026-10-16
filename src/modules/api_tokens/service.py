@@ -1,6 +1,5 @@
 """Service Layer (Logique métier pour l'ApiToken)."""
 
-from src.modules.audit.service import AuditLogService
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -14,6 +13,7 @@ from src.core.security import (
 from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.schemas import ApiTokenCreate
+from src.modules.audit.service import AuditLogService
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 
@@ -71,7 +71,7 @@ class ApiTokenService:
 
     async def revoke_all(self, current_user: User) -> int:
         """Revoke all API tokens for the current user."""
-        #TODO audit log
+        # TODO audit log
         return await self.repository.delete_all_for_owner(current_user.id)
 
     async def prune_expired(self) -> dict[str, int]:
