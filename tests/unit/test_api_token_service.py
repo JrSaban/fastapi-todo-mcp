@@ -15,7 +15,10 @@ def _user(*, is_admin: bool = False) -> User:
 def _service() -> tuple[ApiTokenService, AsyncMock, AsyncMock]:
     token_repo, user_repo = AsyncMock(), AsyncMock()
     token_repo.count_active.return_value = 0
-    return ApiTokenService(repository=token_repo, user_repository=user_repo), token_repo, user_repo
+    service = ApiTokenService(
+        repository=token_repo, user_repository=user_repo, audit_service=AsyncMock()
+    )
+    return service, token_repo, user_repo
 
 
 DATA = ApiTokenCreate(name="Agent", current_password="secret123")

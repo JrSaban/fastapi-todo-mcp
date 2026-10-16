@@ -41,7 +41,7 @@ def _service(
     user_repository: AsyncMock | None = None,
 ) -> ApprovalRequestService:
     return ApprovalRequestService(
-        repository, todo_repository or AsyncMock(), user_repository or AsyncMock()
+        repository, todo_repository or AsyncMock(), user_repository or AsyncMock(), AsyncMock()
     )
 
 

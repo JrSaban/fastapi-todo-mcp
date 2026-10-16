@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import fakeredis
 from httpx import AsyncClient
@@ -137,7 +138,9 @@ async def test_create_category_concurrent_same_name_no_duplicate(
 
             repository.create = create_serialized
 
-            service = CategoryService(repository, redis_client)
+            # No real audit write: its extra flush would let the losing session roll back the
+            # single shared test connection before the winner commits (a StaticPool artifact).
+            service = CategoryService(repository, redis_client, AsyncMock())
             try:
                 category = await service.create_category(
                     created_by_id=creator.id, data=CategoryCreate(name=name)
