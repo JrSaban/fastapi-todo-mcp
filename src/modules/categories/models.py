@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
+from src.modules.audit.models import AuditResourceType
 from src.modules.todos_categories.models import todos_categories
 
 if TYPE_CHECKING:
@@ -49,3 +50,10 @@ class Category(Base):
 
     def __repr__(self) -> str:
         return f"<Category id={self.id} name={self.name} color={self.color}>"
+
+    # Auditable properties
+    audit_resource_type: ClassVar[AuditResourceType] = AuditResourceType.CATEGORY
+
+    @property
+    def audit_owner_id(self) -> int:
+        return self.created_by_id

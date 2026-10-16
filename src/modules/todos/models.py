@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base
+from src.modules.audit.models import AuditResourceType
 from src.modules.todos_categories.models import todos_categories
 
 if TYPE_CHECKING:
@@ -45,3 +46,10 @@ class Todo(Base):
 
     def __repr__(self) -> str:
         return f"<Todo id={self.id} title={self.title!r} is_completed={self.is_completed}>"
+
+    # Auditable properties
+    audit_resource_type: ClassVar[AuditResourceType] = AuditResourceType.TODO
+
+    @property
+    def audit_owner_id(self) -> int:
+        return self.owner_id

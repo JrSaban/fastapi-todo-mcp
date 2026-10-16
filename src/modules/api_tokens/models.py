@@ -1,11 +1,13 @@
 """Modèles pour le domaine API Tokens."""
 
 from datetime import datetime
+from typing import ClassVar
 
 from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base
+from src.modules.audit.models import AuditResourceType
 
 
 class ApiToken(Base):
@@ -24,3 +26,10 @@ class ApiToken(Base):
 
     def __repr__(self) -> str:
         return f"<ApiToken owner_id={self.owner_id} name={self.name!r}>"
+
+    # Auditable properties
+    audit_resource_type: ClassVar[AuditResourceType] = AuditResourceType.API_TOKEN
+
+    @property
+    def audit_owner_id(self) -> int:
+        return self.owner_id

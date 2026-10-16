@@ -1,9 +1,11 @@
 from datetime import datetime
+from typing import ClassVar
 
 from sqlalchemy import Boolean, DateTime, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base
+from src.modules.audit.models import AuditResourceType
 
 
 class User(Base):
@@ -40,3 +42,10 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email!r} is_active={self.is_active}>"
+
+    # Auditable properties
+    audit_resource_type: ClassVar[AuditResourceType] = AuditResourceType.USER
+
+    @property
+    def audit_owner_id(self) -> int:
+        return self.id
