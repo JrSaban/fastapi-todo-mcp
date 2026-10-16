@@ -1,5 +1,8 @@
 """Service Layer (Logique métier pour les ApprovalRequests)."""
 
+from src.modules.audit.models import AuditAction
+from src.modules.audit.models import AuditResourceType
+from src.modules.audit.service import AuditLogService
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import assert_never
@@ -24,10 +27,12 @@ class ApprovalRequestService:
         repository: ApprovalRequestRepository,
         todo_repository: TodoRepository,
         user_repository: UserRepository,
+        audit_service: AuditLogService
     ) -> None:
         self.repository = repository
         self.todo_repository = todo_repository
         self.user_repository = user_repository
+        self.audit = audit_service
 
     async def _decide(
         self, current_user: User, entity_id: int, status: ApprovalStatus
@@ -57,6 +62,15 @@ class ApprovalRequestService:
                 deleted_todo_ids = await self.todo_repository.delete_completed(
                     todo_ids=todo_ids, owner_id=request.owner_id
                 )
+                
+                for todo_id in deleted_todo_ids:
+                    await self.audit.record(
+                        resource_type=AuditResourceType.TODO,
+                        resource_id=todo_id,
+                        resource_owner_id=request.owner_id,
+                        action=AuditAction.DELETED,
+                    )
+                
                 return {"deleted_count": len(deleted_todo_ids)}
             case _:
                 assert_never(request.action)
@@ -128,11 +142,15 @@ class ApprovalRequestService:
         result = await self._execute_request(request)
         await self.repository.set_result(entity=request, result=result)
 
+        await self.audit.log_approved(entity=request)
         return request
 
     async def reject(self, current_user: User, entity_id: int) -> ApprovalRequest:
         """Reject an approval request."""
-        return await self._decide(current_user, entity_id, ApprovalStatus.REJECTED)
+        approval = await self._decide(current_user, entity_id, ApprovalStatus.REJECTED)
+
+        await self.audit.log_rejected(entity=approval)
+        return approval
 
     async def prune_expired(self) -> dict[str, int]:
         """Prune expired approval requests."""

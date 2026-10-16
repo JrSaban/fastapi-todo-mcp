@@ -1,5 +1,7 @@
 """Routing & Controller Layer pour le domaine Approvals."""
 
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -23,7 +25,8 @@ def get_approval_request_service(
     repository = ApprovalRequestRepository(session)
     todo_repository = TodoRepository(session)
     user_repository = UserRepository(session)
-    return ApprovalRequestService(repository, todo_repository, user_repository)
+    audit_service = AuditLogService(repository=AuditLogRepository(session))
+    return ApprovalRequestService(repository, todo_repository, user_repository, audit_service)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)
