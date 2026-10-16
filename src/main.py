@@ -33,6 +33,7 @@ from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.router import router as api_tokens_router
 from src.modules.approvals.router import router as approvals_router
+from src.modules.audit.context import current_actor
 from src.modules.auth.router import router as auth_router
 from src.modules.categories.router import router as categories_router
 from src.modules.jobs.router import router as jobs_router
@@ -303,6 +304,7 @@ async def rate_limit(request: Request, call_next):
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     structlog.contextvars.clear_contextvars()
+    current_actor.set(None)
     request_id = _get_request_id(request)
     structlog.contextvars.bind_contextvars(request_id=request_id)
 
