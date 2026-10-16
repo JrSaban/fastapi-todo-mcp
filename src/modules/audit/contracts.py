@@ -17,8 +17,9 @@ from src.modules.audit.models import AuditResourceType
 class Auditable(Protocol):
     """A model the audit log can record: its resource type, its ID and its owner.
 
-    `id` and `audit_owner_id` are read-only properties rather than plain `int` attributes: a
-    mapped column is a descriptor, which a plain attribute in a protocol wouldn't accept.
+    `id` is declared `Mapped[int]`, exactly as in `Base`, and `audit_owner_id` as a read-only
+    property, as in the models: a plain `int` attribute in the protocol would be refused by the
+    type checker, since a mapped column is a descriptor.
     """
 
     audit_resource_type: ClassVar[AuditResourceType]

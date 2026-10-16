@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from src.core.config import settings
 from src.core.exceptions import NotFoundError
 from src.modules.audit.context import current_actor
+from src.modules.audit.contracts import Auditable
 from src.modules.audit.models import AuditAction, AuditLog, AuditResourceType
 from src.modules.audit.repository import AuditLogRepository
 from src.modules.users.models import User
@@ -14,6 +15,20 @@ from src.modules.users.models import User
 class AuditLogService:
     def __init__(self, repository: AuditLogRepository) -> None:
         self.repository = repository
+
+    async def _log(
+        self,
+        entity: Auditable,
+        action: AuditAction,
+        changed_fields: list[str] | None = None,
+    ) -> AuditLog:
+        return await self.record(
+            resource_type=entity.audit_resource_type,
+            resource_id=entity.id,
+            resource_owner_id=entity.audit_owner_id,
+            action=action,
+            changed_fields=changed_fields,
+        )
 
     async def list_audit_logs(
         self,
@@ -82,6 +97,35 @@ class AuditLogService:
             action=action,
             changed_fields=changed_fields,
         )
+
+    async def log_created(self, entity: Auditable) -> AuditLog:
+        """Log a created entity."""
+        return await self._log(entity, AuditAction.CREATED)
+
+    async def log_updated(
+        self, entity: Auditable, changed_fields: list[str] | None
+    ) -> AuditLog | None:
+        """Log an updated entity if there are changed fields, else return None."""
+        if not changed_fields:
+            return None
+
+        return await self._log(entity, AuditAction.UPDATED, changed_fields)
+
+    async def log_deleted(self, entity: Auditable) -> AuditLog:
+        """Log a deleted entity."""
+        return await self._log(entity, AuditAction.DELETED)
+
+    async def log_restored(self, entity: Auditable) -> AuditLog:
+        """Log a restored entity."""
+        return await self._log(entity, AuditAction.RESTORED)
+
+    async def log_approved(self, entity: Auditable) -> AuditLog:
+        """Log an approved entity."""
+        return await self._log(entity, AuditAction.APPROVED)
+
+    async def log_rejected(self, entity: Auditable) -> AuditLog:
+        """Log a rejected entity."""
+        return await self._log(entity, AuditAction.REJECTED)
 
     async def prune(self) -> dict[str, int]:
         """Prune old audit logs."""
