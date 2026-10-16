@@ -28,7 +28,7 @@ class AuditLogService:
         """Fetch all audit logs with pagination."""
         resource_owner_id = current_user.id if not current_user.is_admin else resource_owner_id
 
-        requests = await self.repository.get_all(
+        audit_logs = await self.repository.get_all(
             skip=skip,
             limit=limit,
             resource_owner_id=resource_owner_id,
@@ -43,13 +43,11 @@ class AuditLogService:
             resource_id=resource_id,
         )
 
-        return (requests, total)
+        return (audit_logs, total)
 
-    async def get_audit_log_or_404(
-        self, current_user: User, entity_id: int, *, resource_owner_id: int | None
-    ) -> AuditLog:
+    async def get_audit_log_or_404(self, current_user: User, entity_id: int) -> AuditLog:
         """Get an audit log by its ID or raise a 404 exception."""
-        resource_owner_id = current_user.id if not current_user.is_admin else resource_owner_id
+        resource_owner_id = current_user.id if not current_user.is_admin else None
         audit_log = await self.repository.get_by_id(
             entity_id=entity_id, resource_owner_id=resource_owner_id
         )
