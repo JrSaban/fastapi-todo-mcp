@@ -403,6 +403,30 @@ async def test_email_and_password_changes_are_recorded_by_name_only(
     assert password_entry.changed_fields == ["password"]
 
 
+async def test_setting_ones_email_to_its_current_value_records_nothing(
+    authenticated_client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """Like any other update, an email sent unchanged isn't a change."""
+    response = await authenticated_client.patch(
+        f"{USERS_PATH}/me/email",
+        json={"new_email": current_user.email, "current_password": PASSWORD},
+    )
+
+    assert response.status_code == 200
+    assert await _entries(db_session) == []
+
+
+async def test_an_admin_setting_an_email_to_its_current_value_records_nothing(
+    authenticated_admin: AsyncClient, db_session: AsyncSession, other_user: User
+) -> None:
+    response = await authenticated_admin.patch(
+        f"{USERS_PATH}/{other_user.id}/email", json={"new_email": other_user.email}
+    )
+
+    assert response.status_code == 200
+    assert await _entries(db_session) == []
+
+
 async def test_role_changes_are_recorded_for_the_target_account(
     authenticated_admin: AsyncClient,
     db_session: AsyncSession,
