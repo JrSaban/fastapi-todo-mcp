@@ -107,9 +107,11 @@ class UserService:
         if not verify_password(data.current_password, current_user.hashed_password):
             raise InvalidPasswordError("Le mot de passe actuel ne correspond pas")
 
+        changes = changed_fields(current_user, {"email": data.new_email})
+
         try:
             user = await self.repository.update_email(current_user, data.new_email)
-            await self.audit.log_updated(entity=user, changed_fields=["email"])
+            await self.audit.log_updated(entity=user, changed_fields=changes)
             return user
         except IntegrityError as e:
             if "uq_users_email_lower" in str(e):
@@ -136,10 +138,11 @@ class UserService:
             raise ForbiddenError("Vous n'avez pas l'autorisation de modifier cet utilisateur.")
 
         user = await self.get_user_or_404(current_user, entity_id)
+        changes = changed_fields(user, {"email": data.new_email})
 
         try:
             user = await self.repository.update_email(user, data.new_email)
-            await self.audit.log_updated(entity=user, changed_fields=["email"])
+            await self.audit.log_updated(entity=user, changed_fields=changes)
             return user
         except IntegrityError as e:
             if "uq_users_email_lower" in str(e):
