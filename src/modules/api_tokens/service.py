@@ -13,6 +13,7 @@ from src.core.security import (
 from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.schemas import ApiTokenCreate
+from src.modules.audit.models import AuditAction, AuditResourceType
 from src.modules.audit.service import AuditLogService
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
@@ -71,8 +72,17 @@ class ApiTokenService:
 
     async def revoke_all(self, current_user: User) -> int:
         """Revoke all API tokens for the current user."""
-        # TODO audit log
-        return await self.repository.delete_all_for_owner(current_user.id)
+        deleted_ids = await self.repository.delete_all_for_owner(current_user.id)
+
+        for token_id in deleted_ids:
+            await self.audit.record(
+                resource_type=AuditResourceType.API_TOKEN,
+                resource_id=token_id,
+                resource_owner_id=current_user.id,
+                action=AuditAction.DELETED,
+            )
+
+        return len(deleted_ids)
 
     async def prune_expired(self) -> dict[str, int]:
         """Prune expired API tokens."""
