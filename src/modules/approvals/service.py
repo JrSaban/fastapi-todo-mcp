@@ -132,6 +132,8 @@ class ApprovalRequestService:
             payload={"todo_ids": list(completed_todos)},
             expires_at=datetime.now(UTC) + timedelta(days=settings.APPROVAL_REQUEST_EXPIRE_DAYS),
         )
+
+        await self.audit.log_created(entity=request)
         return request
 
     async def approve(self, current_user: User, entity_id: int) -> ApprovalRequest:
