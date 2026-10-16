@@ -1,5 +1,7 @@
 """Routing & Controller Layer pour le domaine Users."""
 
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -39,7 +41,8 @@ def get_user_service(
     session: DbSessionDep,
 ) -> UserService:
     repository = UserRepository(session)
-    return UserService(repository)
+    audit_service = AuditLogService(repository=AuditLogRepository(session))
+    return UserService(repository=repository, audit_service=audit_service)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)

@@ -1,5 +1,7 @@
 """Service Layer (Logique métier pour les Users)."""
 
+from src.modules.audit.changes import changed_fields
+from src.modules.audit.service import AuditLogService
 from collections.abc import Sequence
 
 from sqlalchemy.exc import IntegrityError
@@ -18,8 +20,9 @@ from src.modules.users.schemas import (
 
 
 class UserService:
-    def __init__(self, repository: UserRepository) -> None:
+    def __init__(self, repository: UserRepository, audit_service: AuditLogService) -> None:
         self.repository = repository
+        self.audit = audit_service
 
     async def list_users(
         self,
@@ -69,7 +72,9 @@ class UserService:
         """Create a new user."""
         hashed_password = hash_password(data.password)
         try:
-            return await self.repository.create(data, hashed_password)
+            user = await self.repository.create(data, hashed_password)
+            await self.audit.log_created(entity=user)
+            return user
         except IntegrityError as e:
             if "uq_users_email_lower" in str(e):
                 raise ConflictError(f"Un utilisateur avec l'email {data.email} existe déjà.") from e
@@ -84,7 +89,10 @@ class UserService:
         user = await self.get_user_or_404(current_user, entity_id)
 
         try:
-            return await self.repository.update(user, data)
+            updated = await self.repository.update(user, data)
+            changes = changed_fields(user, data.model_dump(exclude_unset=True))
+            await self.audit.log_updated(entity=updated, changed_fields=changes)
+            return updated
         except IntegrityError as e:
             if "uq_users_pseudo_lower" in str(e):
                 raise ConflictError(
@@ -98,7 +106,9 @@ class UserService:
             raise InvalidPasswordError("Le mot de passe actuel ne correspond pas")
 
         try:
-            return await self.repository.update_email(current_user, data.new_email)
+            user = await self.repository.update_email(current_user, data.new_email)
+            await self.audit.log_updated(entity=user, changed_fields=["email"])
+            return user
         except IntegrityError as e:
             if "uq_users_email_lower" in str(e):
                 raise ConflictError(
@@ -112,7 +122,9 @@ class UserService:
             raise InvalidPasswordError("L'ancien mot de passe ne correspond pas")
 
         hashed_password = hash_password(data.new_password)
-        return await self.repository.update_password(current_user, hashed_password)
+        user = await self.repository.update_password(current_user, hashed_password)
+        await self.audit.log_updated(entity=user, changed_fields=["password"])
+        return user
 
     async def set_user_email(
         self, current_user: User, entity_id: int, data: UserEmailUpdate
@@ -124,7 +136,9 @@ class UserService:
         user = await self.get_user_or_404(current_user, entity_id)
 
         try:
-            return await self.repository.update_email(user, data.new_email)
+            user = await self.repository.update_email(user, data.new_email)
+            await self.audit.log_updated(entity=user, changed_fields=["email"])
+            return user
         except IntegrityError as e:
             if "uq_users_email_lower" in str(e):
                 raise ConflictError(
@@ -137,21 +151,33 @@ class UserService:
         if not current_user.is_admin:
             raise ForbiddenError("Vous n'avez pas l'autorisation de modifier cet utilisateur.")
 
+        changed_fields = []
         user = await self.get_user_or_404(current_user, entity_id)
+
+        if user.is_active != is_active:
+            changed_fields.append("is_active")
 
         if not is_active and user.is_admin:
             total_users_admins = await self.repository.count(is_admin=True, is_active=True)
             if total_users_admins == 1:
                 raise ForbiddenError("Vous ne pouvez pas désactiver le dernier admin.")
 
-        return await self.repository.set_active(user, is_active)
+        user = await self.repository.set_active(user, is_active)
+
+        if changed_fields:
+            await self.audit.log_updated(entity=user, changed_fields=changed_fields)
+        return user
 
     async def set_user_admin(self, current_user: User, entity_id: int, is_admin: bool) -> User:
         """Set an user's admin status."""
         if not current_user.is_admin:
             raise ForbiddenError("Vous n'avez pas l'autorisation de modifier cet utilisateur.")
 
+        changed_fields = []
         user = await self.get_user_or_404(current_user, entity_id)
+        
+        if user.is_admin != is_admin:
+            changed_fields.append("is_admin")
 
         if not is_admin and user.is_admin:
             total_users_admins = await self.repository.count(is_admin=True, is_active=True)
@@ -160,4 +186,8 @@ class UserService:
                     "Vous ne pouvez pas retirer le statut d'admin au dernier admin."
                 )
 
-        return await self.repository.set_admin(user, is_admin)
+        user = await self.repository.set_admin(user, is_admin)
+
+        if changed_fields:
+            await self.audit.log_updated(entity=user, changed_fields=changed_fields)
+        return user
