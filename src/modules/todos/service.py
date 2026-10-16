@@ -37,8 +37,11 @@ class TodoService:
         changes = []
         for field, new in payload.model_dump(exclude_unset=True).items():
             if field == "category_ids":
-                old = sorted(c.id for c in todo.categories)
-                new = sorted(c.id for c in (categories or []))
+                if new is not None:
+                    old = sorted(c.id for c in todo.categories)
+                    new = sorted(c.id for c in (categories or []))
+                else:
+                    continue
             else:
                 old = getattr(todo, field)
 
