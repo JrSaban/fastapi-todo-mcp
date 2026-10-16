@@ -166,12 +166,13 @@ class CategoryService:
         if not user.is_admin and category.created_by_id != user.id:
             raise ForbiddenError("Vous n'avez pas le droit de modifier cette catégorie.")
 
+        changes = changed_fields(category, data.model_dump(exclude_unset=True))
+
         try:
             updated = await self.repository.update(category, data)
         except IntegrityError:
             raise ConflictError(f"Une catégorie avec le nom {data.name} existe déjà.") from None
 
-        changes = changed_fields(category, data.model_dump(exclude_unset=True))
         await self.audit.log_updated(entity=updated, changed_fields=changes)
 
         # Invalidate cache

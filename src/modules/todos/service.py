@@ -107,10 +107,10 @@ class TodoService:
         if data.category_ids is not None:
             categories = await self.category_repository.get_by_ids(data.category_ids)
 
-        changed_fields = self._compute_changes(todo, data, categories)
+        changes = self._compute_changes(todo, data, categories)
         todo = await self.repository.update(todo, data, categories)
 
-        await self.audit.log_updated(todo, changed_fields)
+        await self.audit.log_updated(todo, changes)
         return todo
 
     async def delete_todo(self, current_user: User, entity_id: int) -> None:

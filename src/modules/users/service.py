@@ -88,17 +88,19 @@ class UserService:
         """Update an existing user."""
         user = await self.get_user_or_404(current_user, entity_id)
 
+        changes = changed_fields(user, data.model_dump(exclude_unset=True))
+
         try:
             updated = await self.repository.update(user, data)
-            changes = changed_fields(user, data.model_dump(exclude_unset=True))
-            await self.audit.log_updated(entity=updated, changed_fields=changes)
-            return updated
         except IntegrityError as e:
             if "uq_users_pseudo_lower" in str(e):
                 raise ConflictError(
                     f"Un utilisateur avec le pseudo {data.pseudo} existe déjà."
                 ) from e
             raise
+
+        await self.audit.log_updated(entity=updated, changed_fields=changes)
+        return updated
 
     async def update_email(self, current_user: User, data: UserSelfEmailUpdate) -> User:
         """Update email of a user."""
@@ -151,11 +153,11 @@ class UserService:
         if not current_user.is_admin:
             raise ForbiddenError("Vous n'avez pas l'autorisation de modifier cet utilisateur.")
 
-        changed_fields = []
+        changes = []
         user = await self.get_user_or_404(current_user, entity_id)
 
         if user.is_active != is_active:
-            changed_fields.append("is_active")
+            changes.append("is_active")
 
         if not is_active and user.is_admin:
             total_users_admins = await self.repository.count(is_admin=True, is_active=True)
@@ -164,8 +166,8 @@ class UserService:
 
         user = await self.repository.set_active(user, is_active)
 
-        if changed_fields:
-            await self.audit.log_updated(entity=user, changed_fields=changed_fields)
+        if changes:
+            await self.audit.log_updated(entity=user, changed_fields=changes)
         return user
 
     async def set_user_admin(self, current_user: User, entity_id: int, is_admin: bool) -> User:
@@ -173,11 +175,11 @@ class UserService:
         if not current_user.is_admin:
             raise ForbiddenError("Vous n'avez pas l'autorisation de modifier cet utilisateur.")
 
-        changed_fields = []
+        changes = []
         user = await self.get_user_or_404(current_user, entity_id)
 
         if user.is_admin != is_admin:
-            changed_fields.append("is_admin")
+            changes.append("is_admin")
 
         if not is_admin and user.is_admin:
             total_users_admins = await self.repository.count(is_admin=True, is_active=True)
@@ -188,6 +190,6 @@ class UserService:
 
         user = await self.repository.set_admin(user, is_admin)
 
-        if changed_fields:
-            await self.audit.log_updated(entity=user, changed_fields=changed_fields)
+        if changes:
+            await self.audit.log_updated(entity=user, changed_fields=changes)
         return user
