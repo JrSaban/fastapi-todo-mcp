@@ -16,8 +16,10 @@ The caller passes:
 - the current branch and its parent (a stacked branch, or `main`);
 - the commit list `P..HEAD` (short hash + message) and whether the branch is already pushed;
 - the `git diff --stat` and the full diff `P...HEAD`;
-- in final mode, also the list of stacked branches between `main` and `HEAD`, and the
-  `git diff --stat` and full diff `main...HEAD`, which covers the whole task;
+- in final mode, also the list of stacked branches between `main` and `HEAD`, the commit list
+  and `git diff --stat` of `main...HEAD`, and the path of a file holding the full diff
+  `main...HEAD`, which covers the whole task. Read that file in parts (`offset`/`limit`) until
+  the end: it can be long, and stopping early would leave whole branches unreviewed;
 - optionally, the descriptions of parent PRs, as context on their intent only: a description
   that no longer matches the code is not a finding;
 - the outcome of the checks it ran: `ruff check`, `ruff format --check`, `alembic heads`, and

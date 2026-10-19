@@ -24,7 +24,10 @@ the whole task, every parent branch included. Otherwise it covers this branch on
      `main`, which stays an ancestor even after `main` moves on), and every branch of
      `git for-each-ref --format='%(refname:short)' refs/heads` except the current one, `main`
      and `backup/*`;
-   - keep those for which `git merge-base --is-ancestor <candidate> HEAD` succeeds;
+   - keep those for which `git merge-base --is-ancestor <candidate> HEAD` succeeds, and drop
+     those where `git rev-list --count <candidate>..HEAD` is 0: a branch on the same commit as
+     `HEAD` (one just created for the next sub-task) is not a parent, and would give an empty
+     diff;
    - the parent is the one with the smallest `git rev-list --count <candidate>..HEAD`;
      `M` wins a tie (a merged branch is behind it, never closer). When `M` is picked, `P` is
      that commit and the base branch is `main`.
@@ -42,8 +45,9 @@ the whole task, every parent branch included. Otherwise it covers this branch on
    - the stack: the step 2 candidates that are ancestors of `HEAD` but **not** of `origin/main`
      (`git merge-base --is-ancestor <candidate> origin/main` fails), ordered by
      `git rev-list --count origin/main..<candidate>`;
-   - `git log --format='%h %s' origin/main..HEAD`, `git diff --stat origin/main...HEAD` and the
-     full `git diff origin/main...HEAD`.
+   - `git log --format='%h %s' origin/main..HEAD` and `git diff --stat origin/main...HEAD`;
+   - the full diff written to a file rather than passed inline, since a whole task can be too
+     long for one message: `git diff origin/main...HEAD > <scratchpad>/task.diff`. Pass its path.
 4. Checks, keeping each outcome (pass, or the error lines):
    - `uv run ruff check .` and `uv run ruff format --check .`;
    - `uv run alembic heads` — more than one head is a failure;
@@ -68,8 +72,11 @@ the whole task, every parent branch included. Otherwise it covers this branch on
    (`git archive HEAD | tar -x`, so no `.env`, `.env.mcp` or other local file comes along),
    revert the fix there and run that test with the same `env -i` command; it must fail.
 9. Approved `commit` items (rewording) come **first**, while the tree is still clean and the
-   commits are those I reviewed. Only if the branch is **not pushed** and the tree is clean —
-   otherwise tell me and skip them:
+   commits are those I reviewed. Only if the branch is **not pushed**, the tree is clean, and
+   no other local branch is stacked on top (`git for-each-ref --contains HEAD
+   --format='%(refname:short)' refs/heads` lists the current branch only: rewording would
+   change the hashes under a child branch and leave it on the old commits) — otherwise tell me
+   which condition failed and skip them:
    - `git branch -f backup/<branch> HEAD`;
    - write `<scratchpad>/seq.sh`, a sequence editor that appends
      `exec git commit --amend -q -m "<new message>"` after each `pick` line whose hash starts

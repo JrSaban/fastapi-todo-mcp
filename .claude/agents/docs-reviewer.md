@@ -1,6 +1,6 @@
 ---
 name: docs-reviewer
-description: Read-only review of CLAUDE.md, README.md and ROADMAP.md against the current code. Use when the user asks to check or review the docs.
+description: Read-only review of CLAUDE.md, README.md and ROADMAP.md against the current code. Only called by the /docs-review skill, which collects the mode, the diff and the setup checks it needs; never invoke it directly.
 tools: Read, Grep, Glob
 ---
 
