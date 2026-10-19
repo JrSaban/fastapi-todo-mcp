@@ -39,6 +39,7 @@ class AuditLogService:
         action: AuditAction | None = None,
         resource_type: AuditResourceType | None = None,
         resource_id: int | None = None,
+        api_token_id: int | None = None,
     ) -> tuple[Sequence[AuditLog], int]:
         """Fetch all audit logs with pagination."""
         resource_owner_id = current_user.id if not current_user.is_admin else resource_owner_id
@@ -50,12 +51,14 @@ class AuditLogService:
             action=action,
             resource_type=resource_type,
             resource_id=resource_id,
+            api_token_id=api_token_id,
         )
         total = await self.repository.count(
             resource_owner_id=resource_owner_id,
             action=action,
             resource_type=resource_type,
             resource_id=resource_id,
+            api_token_id=api_token_id,
         )
 
         return (audit_logs, total)
