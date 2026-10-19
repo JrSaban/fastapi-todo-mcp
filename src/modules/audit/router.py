@@ -8,6 +8,7 @@ from src.core.database import DbSessionDep
 from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.audit.models import AuditAction, AuditResourceType
 from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
 from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import SessionUserDep
 
