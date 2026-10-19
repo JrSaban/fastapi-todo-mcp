@@ -14,23 +14,22 @@ A main task is usually split into sub-tasks, one stacked branch each. The docs (
 The caller passes:
 - the mode: **branch** (an intermediate sub-task) or **final** (the last sub-task of the task);
 - the current branch and its parent (a stacked branch, or `main`);
-- the commit list `P..HEAD` (short hash + message) and whether the branch is already pushed;
-- the `git diff --stat` and the full diff `P...HEAD`;
-- in final mode, also the list of stacked branches between `main` and `HEAD`, the commit list
-  and `git diff --stat` of `main...HEAD`, and the path of a file holding the full diff
-  `main...HEAD`, which covers the whole task. Read that file in parts (`offset`/`limit`) until
-  the end: it can be long, and stopping early would leave whole branches unreviewed;
+- the branch's own commits `P..HEAD` (short hash + message) and whether it is already pushed;
+  in final mode, also every commit of the task since `main`;
+- the `git diff --stat` of the reviewed range, and the path of a file holding its full diff.
+  Read that file yourself, in parts (`offset`/`limit`) until the end: it can be long, and
+  stopping early would leave part of the changes unreviewed;
 - optionally, the descriptions of parent PRs, as context on their intent only: a description
   that no longer matches the code is not a finding;
 - the outcome of the checks it ran: `ruff check`, `ruff format --check`, `alembic heads`, and
   the test suite (or "tests not run").
 
-The scope of the review depends on the mode:
-- **branch**: the diff `P...HEAD` only.
-- **final**: the whole diff `main...HEAD`, every parent branch included, as one task. Look in
-  particular for what only shows across branches: a later branch undoing or contradicting an
-  earlier one, a rule applied in one sub-task and forgotten in another, a behaviour of an earlier
-  branch left untested. Say which branch introduced each finding (from its commits).
+The reviewed range depends on the mode:
+- **branch**: this branch's own changes only.
+- **final**: the whole task since `main`, every parent branch included, as one piece of work.
+  Look in particular for what only shows at that scale: a later sub-task undoing or
+  contradicting an earlier one, a rule applied in one place and forgotten in another, a
+  behaviour left untested.
 
 Review **only what that diff adds or changes**, plus the untouched code it now breaks (a caller of
 a changed signature, a query on a model that gained a column). Do not report issues in code the
@@ -63,9 +62,10 @@ files fall under before judging them. In particular:
 - **Migrations**: Ruff-compliant like the existing ones, functional indexes and `CHECK`
   constraints declared by hand, a new module's models imported in `alembic/env.py`, a single
   head (from the `alembic heads` outcome).
-- **Commits** (from the `P..HEAD` list only, in both modes: parent branches have their
-  own review, and rewording them would mean restacking every child branch): one line, `type: short description` with a `CONTRIBUTING.md`
-  type matching what the commit contains, not the branch; no trailer; one topic per commit.
+- **Commits** (the branch's own `P..HEAD` commits only, in both modes: parent branches have
+  their own review, and rewording them would mean restacking every child branch): one line,
+  `type: short description` with a `CONTRIBUTING.md` type matching what the commit contains,
+  not the branch; no trailer; one topic per commit.
   Only a message that breaks these rules or misdescribes the commit is a finding: a missing
   verb or a matter of wording is not (the `CONTRIBUTING.md` examples are examples, not a
   required form). Suggest the replacement message.
@@ -89,7 +89,7 @@ Don't invent a finding to fill a category; say "nothing found" when the branch i
 Do not modify anything. Return a numbered list, most severe first:
 
 ```
-N. [category] path/to/file.py:42  (final mode: — from <branch>)
+N. [category] path/to/file.py:42
    Issue: ...
    Why it matters: ...
    Suggested change: ...
