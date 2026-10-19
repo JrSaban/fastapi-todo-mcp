@@ -136,7 +136,7 @@ async def test_approve_decides_executes_and_stores_the_result(
     repository.decide.return_value = True
     repository.get_by_id.return_value = approval_request
     todo_repository = AsyncMock()
-    todo_repository.delete_completed.return_value = 2
+    todo_repository.delete_completed.return_value = [3, 4]
 
     result = await _service(repository, todo_repository).approve(user, 1)
 

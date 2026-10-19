@@ -1,5 +1,5 @@
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 import fakeredis
 import pytest
@@ -26,6 +26,8 @@ from src.core.database import Base, get_db_session  # noqa: E402
 from src.core.redis import get_redis_client  # noqa: E402
 from src.core.security import hash_password  # noqa: E402
 from src.main import app  # noqa: E402
+from src.modules.audit.context import Actor, current_actor  # noqa: E402
+from src.modules.audit.models import AuditAuthMethod  # noqa: E402
 from src.modules.auth.router import get_current_user  # noqa: E402
 from src.modules.users.models import User  # noqa: E402
 from src.modules.users.repository import UserRepository  # noqa: E402
@@ -171,8 +173,25 @@ async def other_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def authenticated_client(client: AsyncClient, current_user: User) -> AsyncClient:
     """Le client de test, mais avec get_current_user déjà surchargé par current_user."""
-    app.dependency_overrides[get_current_user] = lambda: current_user
+    app.dependency_overrides[get_current_user] = _as_session_user(current_user)
     return client
+
+
+def _as_session_user(user: User) -> Callable[[], Awaitable[User]]:
+    """Override of get_current_user acting as a login session of `user`.
+
+    It sets the request's actor like the real dependency does, so audit entries written during
+    the request carry this user. It must be async: a sync dependency runs in a worker thread,
+    and a context variable set there wouldn't reach the route.
+    """
+
+    async def override() -> User:
+        current_actor.set(
+            Actor(user_id=user.id, auth_method=AuditAuthMethod.SESSION, api_token_id=None)
+        )
+        return user
+
+    return override
 
 
 @pytest.fixture
@@ -195,7 +214,7 @@ async def current_admin_user(db_session: AsyncSession) -> User:
 @pytest.fixture
 async def authenticated_admin(client: AsyncClient, current_admin_user: User) -> AsyncClient:
     """Le client de test, mais avec get_current_user déjà surchargé par current_admin_user."""
-    app.dependency_overrides[get_current_user] = lambda: current_admin_user
+    app.dependency_overrides[get_current_user] = _as_session_user(current_admin_user)
     return client
 
 

@@ -11,6 +11,8 @@ from src.core.database import DbSessionDep
 from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.approvals.router import ApprovalRequestServiceDep
 from src.modules.approvals.schemas import ApprovalRequestResponse
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import CurrentUserDep, IsApiTokenDep
 from src.modules.categories.repository import CategoryRepository
 from src.modules.todos.models import Todo
@@ -34,7 +36,8 @@ def get_todo_service(
 ) -> TodoService:
     repository = TodoRepository(session)
     category_repository = CategoryRepository(session)
-    return TodoService(repository, category_repository)
+    audit_service = AuditLogService(repository=AuditLogRepository(session))
+    return TodoService(repository, category_repository, audit_service)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)

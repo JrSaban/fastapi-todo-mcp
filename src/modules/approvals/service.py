@@ -54,10 +54,10 @@ class ApprovalRequestService:
         match request.action:
             case ApprovalAction.DELETE_COMPLETED_TODOS:
                 todo_ids = _TODO_IDS.validate_python(request.payload["todo_ids"])
-                count = await self.todo_repository.delete_completed(
+                deleted_todo_ids = await self.todo_repository.delete_completed(
                     todo_ids=todo_ids, owner_id=request.owner_id
                 )
-                return {"deleted_count": count}
+                return {"deleted_count": len(deleted_todo_ids)}
             case _:
                 assert_never(request.action)
 
