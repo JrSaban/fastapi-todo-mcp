@@ -119,7 +119,7 @@ Services return ORM models and the router serializes them through `response_mode
 
 `SoftDeleteRepository[ModelT]` sits between the two: it extends `BaseRepository` with `prune_soft_deleted(before)`, a single bulk `DELETE` of rows soft-deleted before a date, and `restore(entity)`, which sets the column back to `NULL`. `TodoRepository` and `CategoryRepository` inherit from it; `UserRepository` stays on `BaseRepository`, so the method only exists where it makes sense. The column is the `soft_delete_column` class attribute (`"deleted_at"`), overridden in one line by a model that doesn't follow the convention — Laravel's `const DELETED_AT`. The repository receives the cut-off date; the retention policy lives in the service.
 
-`TodoRepository` keeps its own `get_by_id`/`update` (`# pyrefly: ignore[bad-override]`), because `owner_id`/`categories` are required parameters the shared signature can't express without weakening the "no default" guarantee described under Ownership. This divergence is deliberate, not a gap to unify.
+`TodoRepository` keeps its own `get_by_id`/`update` (`# pyrefly: ignore[bad-override]`), because `owner_id`/`categories` are required parameters the shared signature can't express without weakening the "no default" guarantee described under Ownership. `ApprovalRequestRepository` and `AuditLogRepository` override `get_by_id` the same way, with a keyword-only owner filter (`owner_id`, `resource_owner_id`). This divergence is deliberate, not a gap to unify.
 
 `get_all`/`count` stay per-repository, and both go through that repository's private `_apply_filters`, so the page and its total can never drift apart. Plain equality and partial-match filters are passed to `BaseRepository._apply_filter_params` as a `list[FilterParams]` (`NamedTuple(column, value, op: Literal["eq", "ilike"])`) — named and typed, never a dict. Filters that don't fit (`Todo.category_ids` via `.any()`, `User.name` across two columns) are written by hand next to it.
 
@@ -223,7 +223,7 @@ categories:list:gen                      → integer generation counter         
 - **A `name` search is never cached**, read or written — each distinct search term would otherwise mint its own cache entry forever, with no bound on how many. `skip` also has an upper bound for the same reason.
 - **List invalidation is by generation.** A list can be cached under any combination of `skip`/`limit`, so instead of finding and deleting those keys, every create/update/delete does `INCR categories:list:gen`. Old entries become unreachable and expire on their own.
 - **Item invalidation** is a `DEL category:<id>` on update and delete.
-- **The cache tolerates a Redis outage.** Every cache read, write and invalidation catches `RedisError` (and, on reads, an unparsable payload), logs a warning (`redis_unavailable` / `cache_corrupted`) and falls back to the database. A cache problem must never turn into a 5xx. The general rate limit does the same (see "Rate limiting"); the refresh-token store and the login/sensitive-action limits have no fallback.
+- **The cache tolerates a Redis outage.** Every cache read, write and invalidation catches `RedisError` (and, on reads, an unparsable payload), logs a warning (`redis_unavailable` / `cache_corrupted`) and falls back to the database. One exception: a failed read of `categories:list:gen` logs nothing and falls back to generation 0. A cache problem must never turn into a 5xx. The general rate limit does the same (see "Rate limiting"); the refresh-token store and the login/sensitive-action limits have no fallback.
 - `get_category_or_404` is the **uncached** read. Use it for anything that then mutates the row or needs an ORM instance (`update_category`, `delete_category`, the existence check of `GET /categories/{id}/todos`); only `GET /categories/{id}` uses `get_category_cached`.
 
 ### Cross-module relationships
@@ -258,6 +258,12 @@ Three independent limits, all fixed-window counters in Redis, all answering 429 
 | **Login** | `POST /login` | client IP **and** email, separately — either one blocks | failed logins only |
 | **Sensitive actions** | `PATCH /users/me/email`, `/me/password`, `POST /api-tokens` | user, one counter shared by all three | wrong current password only (`InvalidPasswordError`) |
 
+```
+rate_limit:general:user:<id>  |  rate_limit:general:ip:<ip>
+rate_limit:login:ip:<ip>      +  rate_limit:login:email:<email>
+rate_limit:sensitive_actions:user:<id>
+```
+
 - **The TTL is set with `EXPIRE ... NX` after every `INCR`**, not only when the counter is created: if setting it ever failed once, the next increment sets it, instead of leaving a counter that never expires and blocks forever.
 - **`Retry-After` is the blocking counter's remaining TTL**, in seconds (`seconds_until_reset`, never below 1). The middleware sets it on its own `JSONResponse`; the login and sensitive-action dependencies pass it through `TooManyRequestsError(..., headers=...)`, which the `AppBaseError` handler in `main.py` copies onto the response. Any other exception can carry headers the same way.
 - **The login and sensitive-action limits live in the router, not the service.** A dependency (`RateLimitLoginDep`, `SensitiveActionRateLimitDep`) checks the counter before the handler runs; the handler catches the service's exception (`UnauthorizedError` / `InvalidPasswordError`), increments, and re-raises. Services stay unaware of rate limiting. A new limited action follows the same shape.
@@ -290,9 +296,9 @@ idempotency:<user_id>:<key> → {"status": "in_progress", "request_hash"}       
 Taskiq, not ARQ (ARQ requires `redis<6`). `src/core/broker.py` holds the `broker` and the `scheduler`; the worker and the scheduler run as separate processes (`worker`/`scheduler` compose services).
 
 - **Exactly one scheduler**: two would send every scheduled job twice. Crons are UTC.
-- **`RedisStreamBroker`, not `ListQueueBroker`**, which crashed idle workers every few seconds with redis-py 8. A job is acknowledged only once handled, so a worker dying mid-job hands it to another — **every job must be safe to run twice.**
+- **`RedisStreamBroker`, not `ListQueueBroker`**, which crashed idle workers every few seconds with redis-py 8. A job is acknowledged only once handled, so a worker dying mid-job hands it to another — **every job must be safe to run twice.** Its Redis keys are the `taskiq:queue` stream and the `taskiq:result` prefix.
 - **Jobs live in a `tasks.py` per module**, found by `--fs-discover`, which **both the worker and the scheduler need**: without it the scheduler never imports the job and its schedule silently never fires. A job spanning modules goes into `maintenance`. Each job sets an explicit `task_name` (`"<module>:<job>"`), so moving the file doesn't orphan queued messages.
-- **A job opens its own session and commits** (no `DbSessionDep` in the worker), then calls a service. `async_session_factory` is only ever opened at such entry points — `tasks.py`, the tracking middleware, a background task — never in a service or repository. Each of those modules must be listed in `conftest.py`'s `background_code_uses_test_database`, or its tests write into the real Postgres.
+- **A job opens its own session and commits** (no `DbSessionDep` in the worker), then calls a service. `async_session_factory` is only ever opened at such entry points — `tasks.py`, the tracking middleware, a background task, the HTTP middlewares' API-token lookup (`main.py`) — never in a service or repository. Each of those modules must be listed in `conftest.py`'s `background_code_uses_test_database`, or its tests write into the real Postgres.
 - **Under tests** (`APP_ENV=test`) `broker` is an `InMemoryBroker(await_inplace=True)`: `.kiq()` runs the job, middleware included, before returning.
 - **The API starts and stops the broker** in `main.py`'s `lifespan`; the worker never imports `main.py`.
 - **No retries.** Taskiq's own result store (`TASK_RESULT_TTL_HOURS`) is only for debugging with `wait_result()`; the `jobs` table is the record.
@@ -349,7 +355,7 @@ audit_logs: actor_id · auth_method (session/api_token) · api_token_id · resou
 
 ### MCP server
 
-`mcp_server/` (top level, outside `src/`) exposes the API to an agent as MCP tools, over stdio. It is **a plain HTTP client of the API** with a personal API token and **never imports `src/`**: an agent must go through the same permissions, rate limits and idempotency as any client. The `mcp` SDK is 2.x, where `FastMCP` is renamed `MCPServer`.
+`mcp_server/` (top level, outside `src/`) exposes the API to an agent as MCP tools, over stdio. It is **a plain HTTP client of the API** with a personal API token and **never imports `src/`**: an agent must go through the same permissions, rate limits and idempotency as any client. It is built on `MCPServer`, with `mcp>=2.3`.
 
 - `config.py`: `TODO_API_URL`, `TODO_API_TOKEN` (`SecretStr`, refused at startup unless it starts with `tda_`, a constant duplicated from `security.py` since `src/` can't be imported), read from the environment only. Never instantiated at import: `__main__.py` builds it.
 - `api_client.py`: adds the token to every request; any API error becomes a `ToolError` `"API error <status>: <detail>"` (a 422 detail list is flattened to `field.path: message`), an unreachable API `"API unreachable (<exception>)"`.

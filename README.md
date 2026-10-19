@@ -29,7 +29,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **Audit log** — every write on todos, categories, accounts, API tokens and approval requests is recorded: who acted, whether as a human or through which API token, on what, which fields changed (names only, never values), and when. Each user reads the entries about their own resources, admins all of them; an agent can't read the log. Entries are kept a year
 - **Ownership & permissions** — a todo is private to its owner (admins see everything); a category is visible to everyone but only its creator or an admin can edit it, and only an admin can delete it
 - **Todos ↔ Categories** — many-to-many relationship, with optional eager-loading (`?include=categories`) and filtering by category
-- **Pagination & filtering** — every list endpoint supports `skip`/`limit` (page sizes of 10, 25, 50 or 100), free-text search, and resource-specific filters (status, category, role, ...)
+- **Pagination & filtering** — every paginated list endpoint supports `skip`/`limit` (page sizes of 10, 25, 50 or 100), free-text search, and resource-specific filters (status, category, role, ...)
 - **Soft deletes** on todos and categories — a deleted row stays in the database but is invisible to the API, like Laravel's `SoftDeletes`, and is deleted for good by a weekly background job after 30 days, like Laravel's `Prunable`. Until then, deleted todos can be listed and restored
 - **Rate limiting** — a general per-user / per-IP request quota, plus stricter limits on failed logins and on wrong-password attempts when changing your email or password or creating an API token
 - **Idempotency keys** — an `Idempotency-Key` header on `POST /todos`, `POST /categories` and `POST /todos/delete-completed`, so a retried request returns the original response instead of creating a duplicate; optional for a login session, required for an API token
@@ -42,15 +42,15 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 
 A few decisions worth a second look if you're skimming the code:
 
-- **Ownership lives in the query, not as an afterthought.** `TodoRepository` takes an `owner_id: int | None` filter; the service computes it as `current_user.id`, or `None` for admins to disable the filter entirely. Requesting someone else's todo returns `404`, never `403` — the row simply doesn't match the filter, so the API never confirms whether an ID belongs to another user.
+- **Ownership lives in the query, not as an afterthought.** `TodoRepository` takes an `owner_id: int | None` filter; the service computes it as `current_user.id`, or, for an admin, the optional `owner_id` query parameter (no filter when absent). Requesting someone else's todo returns `404`, never `403` — the row simply doesn't match the filter, so the API never confirms whether an ID belongs to another user.
 - **Uniqueness is enforced by the database, not by a check-then-insert.** Category names, emails and pseudos are unique case-insensitively through functional unique indexes (`lower(name)`). Services don't query first: they insert, catch the `IntegrityError`, and return a clean `409` — so two concurrent requests can't both slip through. A dedicated test runs the two inserts concurrently to prove it. The category index is partial (`WHERE deleted_at IS NULL`), so the name of a soft-deleted category can be reused.
 - **Refresh tokens are stored hashed and rotated atomically.** Redis only holds the SHA-256 of a token, never the token itself. Each `/refresh` consumes it with a single `GETDEL`, so the same token can't be exchanged twice, even by two requests arriving at the same time. Rotation alone would let an active session renew itself forever, so a separate, longer-lived marker caps the session's absolute lifetime regardless of activity. Changing your password or your email revokes it outright, the same way logging out does.
 - **Login takes the same time whether the email exists or not.** An unknown email still runs a full Argon2 verification, against a dummy hash computed once at startup, instead of short-circuiting — otherwise the response time alone would reveal which emails are registered, even behind an identical error message.
-- **Rate limits that only punish failures.** Login attempts are counted per IP *and* per email, so neither rotating emails from one machine nor spreading guesses across machines gets around the limit — and only failed attempts count, so a legitimate user is never throttled for logging in. The services know nothing about it: limits are checked and counted at the router level.
-- **Retries that can't create duplicates, even concurrent ones.** A client that times out and retries is the classic duplicate-maker — and the retry usually arrives while the first request is still running. The idempotency key is therefore claimed atomically in Redis (`SET NX`) *before* the request runs, so a concurrent retry gets a `409` instead of running twice. Only successful responses are stored, and only once the database transaction has actually committed.
+- **Rate limits that only punish failures.** Login attempts are counted per IP *and* per email, so neither rotating emails from one machine nor spreading guesses across machines gets around the limit — and only failed attempts count, so a legitimate user is never throttled for logging in. Attempts sent in parallel still get around it for now (planned fix in `ROADMAP.md`). The services know nothing about it: limits are checked and counted at the router level.
+- **Retries that can't create duplicates, even concurrent ones.** A client that times out and retries is the classic duplicate-maker — and the retry usually arrives while the first request is still running. The idempotency key is therefore claimed atomically in Redis (`SET NX`) *before* the request runs, so a concurrent retry gets a `409` instead of running twice, as long as the first request finishes within the lock's TTL (30 seconds). Only successful responses are stored, and only once the database transaction has actually committed.
 - **An agent gets no back door.** The MCP server lives outside `src/` and never imports it: it only calls the HTTP API, with the user's API token. Everything built to protect the API — rate limits, idempotency, ownership — therefore applies to the agent too, and an API token can't act as an admin or manage the account. Retrying a creation reuses the agent's idempotency key, so a blind retry never duplicates.
 - **A human stays in the loop where it matters.** An agent's bulk deletion becomes a request that freezes the exact todos it targets, chosen by the server rather than by the agent; the user approves that list, nothing more. Approving is a single conditional `UPDATE` on the pending row, so two approvals at once can't run the deletion twice, and an expired request can't be approved at all. Stored texts — especially category names, shared between users — can carry instructions aimed at the agent: the MCP server tells the model they are data, but the real limit is structural, since a token can neither manage the account, nor act as an admin, nor approve anything — nor create or rename a category, the one text every other user's agent would read.
-- **A cache that never takes the API down.** Paginated category lists are invalidated with a generation counter (one `INCR` instead of hunting for every cached page). Every Redis call on the cache path is allowed to fail: the request falls back to PostgreSQL and logs a warning.
+- **A cache that never takes the API down.** Paginated category lists are invalidated with a generation counter (one `INCR` instead of hunting for every cached page). Every Redis call on the cache path is allowed to fail: the request falls back to PostgreSQL and logs a warning, except a failed read of the generation counter, which silently falls back to generation 0.
 - **Generic repository layer.** `BaseRepository[ModelT: Base]` (`src/core/repository.py`) uses Python 3.12's native generic syntax (`class Foo[T]`) to share pagination, counting and typed filtering across every repository, while each resource keeps its own fully-typed filter parameters — no dynamic/untyped filter dicts. A `SoftDeleteRepository` layer adds restoring and the pruning of old soft-deleted rows to the two models that need it, and only to them.
 - **Clean Architecture, enforced consistently.** Every module follows the same `router → service → repository → models` layering; services raise framework-agnostic exceptions (`NotFoundError`, `ForbiddenError`, ...) mapped to HTTP status codes in one place, never `HTTPException` scattered through the business logic.
 - **Tested at two levels.** Fast unit tests exercise each service in isolation with mocked repositories; integration tests run the full FastAPI stack against a real (in-memory) database. CI also applies every migration to a real PostgreSQL instance, and audits the locked dependencies against known vulnerabilities (`pip-audit`) — the Docker image isn't published while one is reported.
@@ -112,19 +112,19 @@ uv run ruff format .       # format
 
 ## API overview
 
-All routes are prefixed with `/api/v1`. `POST /todos`, `POST /categories` and `POST /todos/delete-completed` accept an `Idempotency-Key` header, required when authenticating with an API token.
+All routes are prefixed with `/api/v1`, except `GET /health`, which needs no authentication and is never rate-limited. `POST /todos`, `POST /categories` and `POST /todos/delete-completed` accept an `Idempotency-Key` header, required when authenticating with an API token.
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/login` | Authenticate, returns an access token and a refresh token |
 | `POST` | `/refresh` | Exchange a refresh token for a new pair |
-| `POST` | `/logout` | Revoke the current refresh token |
+| `POST` | `/logout` | Revoke the current refresh token *(login session only)* |
 | `POST` | `/users` | Register a new account |
 | `GET` | `/users/me` | Current user's profile |
 | `GET` | `/users` | List users *(admin only)* |
-| `GET` `PATCH` | `/users/{id}` | View / update a profile (yourself, or anyone as an admin) |
-| `PATCH` | `/users/me/password` | Change your own password *(logs you out; can also revoke your API tokens)* |
-| `PATCH` | `/users/me/email` | Change your own email, current password required *(logs you out)* |
+| `GET` `PATCH` | `/users/{id}` | View / update a profile (yourself, or anyone as an admin) *(updating: login session only)* |
+| `PATCH` | `/users/me/password` | Change your own password *(login session only; logs you out; can also revoke your API tokens)* |
+| `PATCH` | `/users/me/email` | Change your own email, current password required *(login session only; logs you out)* |
 | `PATCH` | `/users/{id}/email` | Change another user's email *(admin only, logs them out)* |
 | `PATCH` | `/users/{id}/active` `/admin` | (De)activate or promote a user *(admin only)* |
 | `GET` `POST` | `/todos` | List (own todos, or all for admins) / create a todo |
@@ -142,9 +142,9 @@ All routes are prefixed with `/api/v1`. `POST /todos`, `POST /categories` and `P
 | `POST` | `/maintenance/prune` | Start the soft-delete pruning now, returns the job to follow *(admin only)* |
 | `GET` | `/jobs` | List jobs (your own, or all for admins) |
 | `GET` | `/jobs/{task_id}` | A job's status, result or error |
-| `POST` | `/api-tokens` | Create a personal API token, current password required *(the token is shown once)* |
+| `POST` | `/api-tokens` | Create a personal API token, current password required *(login session only; the token is shown once)* |
 | `GET` | `/api-tokens` | List your API tokens (never their value) |
-| `DELETE` | `/api-tokens/{id}` | Revoke one of your API tokens |
+| `DELETE` | `/api-tokens/{id}` | Revoke one of your API tokens *(login session only)* |
 | `GET` | `/audit-logs` | Audit entries about your resources (all of them for admins), filterable by action, resource and API token *(login session only)* |
 | `GET` | `/audit-logs/{id}` | One audit entry *(login session only)* |
 
