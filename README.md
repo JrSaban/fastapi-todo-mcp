@@ -26,6 +26,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
 - **Personal API tokens** — long-lived, revocable tokens for agents (up to 5 active per user, 30 days, 90 days or no expiry), shown once at creation and stored hashed; they can't manage the account or act as an admin
 - **Role-based access control** — regular users vs. admins, with dedicated endpoints to promote/demote or (de)activate accounts (protected against locking out the last remaining admin)
+- **Audit log** — every write on todos, categories, accounts, API tokens and approval requests is recorded: who acted, whether as a human or through which API token, on what, which fields changed (names only, never values), and when. Each user reads the entries about their own resources, admins all of them; an agent can't read the log. Entries are kept a year
 - **Ownership & permissions** — a todo is private to its owner (admins see everything); a category is visible to everyone but only its creator or an admin can edit it, and only an admin can delete it
 - **Todos ↔ Categories** — many-to-many relationship, with optional eager-loading (`?include=categories`) and filtering by category
 - **Pagination & filtering** — every list endpoint supports `skip`/`limit` (page sizes of 10, 25, 50 or 100), free-text search, and resource-specific filters (status, category, role, ...)
@@ -144,6 +145,8 @@ All routes are prefixed with `/api/v1`. `POST /todos`, `POST /categories` and `P
 | `POST` | `/api-tokens` | Create a personal API token, current password required *(the token is shown once)* |
 | `GET` | `/api-tokens` | List your API tokens (never their value) |
 | `DELETE` | `/api-tokens/{id}` | Revoke one of your API tokens |
+| `GET` | `/audit-logs` | Audit entries about your resources (all of them for admins), filterable by action, resource and API token *(login session only)* |
+| `GET` | `/audit-logs/{id}` | One audit entry *(login session only)* |
 
 ## Project structure
 
@@ -155,6 +158,7 @@ src/
 │   ├── auth/        # login, refresh, logout, JWT and API-token validation
 │   ├── api_tokens/   # personal API tokens for agents
 │   ├── approvals/    # approval requests: an agent's bulk actions wait for a human
+│   ├── audit/        # audit log: who changed what, human or agent
 │   ├── users/        # user profiles, admin management
 │   ├── todos/        # todos, ownership
 │   ├── categories/   # categories, creator/admin permissions, cache
