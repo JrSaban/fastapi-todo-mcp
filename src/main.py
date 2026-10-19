@@ -34,6 +34,7 @@ from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.router import router as api_tokens_router
 from src.modules.approvals.router import router as approvals_router
 from src.modules.audit.context import current_actor
+from src.modules.audit.router import router as audit_router
 from src.modules.auth.router import router as auth_router
 from src.modules.categories.router import router as categories_router
 from src.modules.jobs.router import router as jobs_router
@@ -77,6 +78,7 @@ app.include_router(maintenance_router, prefix=settings.API_V1_STR)
 app.include_router(jobs_router, prefix=settings.API_V1_STR)
 app.include_router(api_tokens_router, prefix=settings.API_V1_STR)
 app.include_router(approvals_router, prefix=settings.API_V1_STR)
+app.include_router(audit_router, prefix=settings.API_V1_STR)
 
 
 logger = structlog.get_logger()
