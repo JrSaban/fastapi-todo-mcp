@@ -13,6 +13,8 @@ from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.schemas import ApiTokenCreate, ApiTokenCreatedResponse, ApiTokenResponse
 from src.modules.api_tokens.service import ApiTokenService
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import (
     CurrentUserDep,
     SensitiveActionRateLimitDep,
@@ -28,7 +30,12 @@ router = APIRouter(prefix="/api-tokens", tags=["API tokens"])
 def get_api_token_service(session: DbSessionDep) -> ApiTokenService:
     api_token_repository = ApiTokenRepository(session)
     user_repository = UserRepository(session)
-    return ApiTokenService(repository=api_token_repository, user_repository=user_repository)
+    audit_service = AuditLogService(repository=AuditLogRepository(session))
+    return ApiTokenService(
+        repository=api_token_repository,
+        user_repository=user_repository,
+        audit_service=audit_service,
+    )
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)

@@ -19,7 +19,7 @@ from src.modules.users.service import UserService
 
 async def test_list_users_by_admin_success():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="test@gmail.com",
@@ -50,7 +50,7 @@ async def test_list_users_by_admin_success():
 
 async def test_list_users_by_no_admin_raises_forbidden_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -83,7 +83,7 @@ async def test_get_me_by_user_returns_current_user():
     )
     mock_user_repo.get_by_id.return_value = current_user
 
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
 
     result = await service.get_user_or_404(current_user, current_user.id)
 
@@ -103,7 +103,7 @@ async def test_get_user_or_404_raises_when_not_found():
         is_admin=True,
     )
 
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
 
     with pytest.raises(NotFoundError):
         await service.get_user_or_404(current_user, 2)
@@ -133,7 +133,7 @@ async def test_get_user_by_admin_user_returns_user():
     )
     mock_user_repo.get_by_id.return_value = fake_user
 
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
 
     result = await service.get_user_or_404(admin_user, fake_user.id)
 
@@ -156,7 +156,7 @@ async def test_get_user_by_no_admin_user_raises_forbidden_error():
     )
     fake_user_id = 2
 
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
 
     with pytest.raises(ForbiddenError):
         await service.get_user_or_404(current_user, fake_user_id)
@@ -172,7 +172,7 @@ async def test_get_user_by_no_admin_user_raises_forbidden_error():
 @patch("src.modules.users.service.hash_password", return_value="hashedpassword")
 async def test_create_user_success(mock_hash_password):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     user_data = UserCreate(
         email="test@gmail.com",
         first_name="John",
@@ -200,7 +200,7 @@ async def test_create_user_success(mock_hash_password):
 @patch("src.modules.users.service.hash_password", return_value="hashedpassword")
 async def test_create_user_with_existing_email_raises_conflict_error(mock_hash_password):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     user_data = UserCreate(
         email="test@gmail.com",
         first_name="John",
@@ -221,7 +221,7 @@ async def test_create_user_with_existing_email_raises_conflict_error(mock_hash_p
 @patch("src.modules.users.service.hash_password", return_value="hashedpassword")
 async def test_create_user_with_existing_pseudo_raises_conflict_error(mock_hash_password):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     user_data = UserCreate(
         email="test@gmail.com",
         first_name="John",
@@ -242,7 +242,7 @@ async def test_create_user_with_existing_pseudo_raises_conflict_error(mock_hash_
 
 async def test_create_user_with_unrelated_integrity_error_reraises():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     user_data = UserCreate(
         email="test@gmail.com",
         first_name="John",
@@ -262,7 +262,7 @@ async def test_create_user_with_unrelated_integrity_error_reraises():
 
 async def test_update_user_success():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -299,7 +299,7 @@ async def test_update_user_success():
 
 async def test_update_user_by_admin_success():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="test@gmail.com",
@@ -344,7 +344,7 @@ async def test_update_user_by_admin_success():
 
 async def test_update_user_by_no_admin_raises_forbidden_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -367,7 +367,7 @@ async def test_update_user_by_no_admin_raises_forbidden_error():
 
 async def test_update_user_with_existing_pseudo_raises_conflict_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -395,7 +395,7 @@ async def test_update_user_with_existing_pseudo_raises_conflict_error():
 @patch("src.modules.users.service.verify_password", return_value=True)
 async def test_update_email_success(mock_verify_password):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="old@gmail.com",
@@ -429,7 +429,7 @@ async def test_update_email_success(mock_verify_password):
 @patch("src.modules.users.service.verify_password", return_value=False)
 async def test_update_email_with_incorrect_password_raises_forbidden_error(mock_verify_password):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="old@gmail.com",
@@ -453,7 +453,7 @@ async def test_update_email_with_incorrect_password_raises_forbidden_error(mock_
 @patch("src.modules.users.service.verify_password", return_value=True)
 async def test_update_email_with_existing_email_raises_conflict_error(mock_verify_password):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="old@gmail.com",
@@ -479,7 +479,7 @@ async def test_update_email_with_existing_email_raises_conflict_error(mock_verif
 @patch("src.modules.users.service.verify_password", return_value=True)
 async def test_update_password_success(mock_verify_password, mock_hash_password):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -525,7 +525,7 @@ async def test_update_password_with_incorrect_old_password_raises_forbidden_erro
     mock_hash_password,
 ):
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -557,7 +557,7 @@ async def test_update_password_with_incorrect_old_password_raises_forbidden_erro
 
 async def test_set_user_email_by_admin_success():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="admin@gmail.com",
@@ -595,7 +595,7 @@ async def test_set_user_email_by_admin_success():
 
 async def test_set_user_email_by_non_admin_raises_forbidden_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     regular_user = User(
         id=1,
         email="user@gmail.com",
@@ -617,7 +617,7 @@ async def test_set_user_email_on_own_id_raises_forbidden_error():
     """An admin can't use this admin-only route on their own id — they must go
     through /me/email with their password instead."""
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="admin@gmail.com",
@@ -637,7 +637,7 @@ async def test_set_user_email_on_own_id_raises_forbidden_error():
 
 async def test_set_user_email_with_existing_email_raises_conflict_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="admin@gmail.com",
@@ -669,7 +669,7 @@ async def test_set_user_email_with_existing_email_raises_conflict_error():
 
 async def test_set_user_active_success():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="test@gmail.com",
@@ -708,7 +708,7 @@ async def test_set_user_active_success():
 
 async def test_set_user_active_by_no_admin_raises_forbidden_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -729,7 +729,7 @@ async def test_set_user_active_by_no_admin_raises_forbidden_error():
 
 async def test_set_user_inactive_last_admin_raises_forbidden_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="test@gmail.com",
@@ -756,7 +756,7 @@ async def test_set_user_inactive_last_admin_raises_forbidden_error():
 
 async def test_set_user_admin_success():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="test@gmail.com",
@@ -795,7 +795,7 @@ async def test_set_user_admin_success():
 
 async def test_set_user_admin_by_no_admin_raises_forbidden_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     current_user = User(
         id=1,
         email="test@gmail.com",
@@ -816,7 +816,7 @@ async def test_set_user_admin_by_no_admin_raises_forbidden_error():
 
 async def test_set_user_no_admin_last_admin_raises_forbidden_error():
     mock_user_repo = AsyncMock()
-    service = UserService(repository=mock_user_repo)
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
     admin_user = User(
         id=1,
         email="test@gmail.com",

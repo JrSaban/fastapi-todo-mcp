@@ -14,6 +14,8 @@ from sqlalchemy.exc import IntegrityError
 
 from src.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from src.core.redis import hash_redis_key
+from src.modules.audit.changes import changed_fields
+from src.modules.audit.service import AuditLogService
 from src.modules.categories.models import Category
 from src.modules.categories.repository import CategoryRepository
 from src.modules.categories.schemas import CategoryCreate, CategoryResponse, CategoryUpdate
@@ -25,9 +27,12 @@ logger = structlog.get_logger()
 
 
 class CategoryService:
-    def __init__(self, repository: CategoryRepository, redis_client: Redis) -> None:
+    def __init__(
+        self, repository: CategoryRepository, redis_client: Redis, audit_service: AuditLogService
+    ) -> None:
         self.repository = repository
         self.redis_client = redis_client
+        self.audit = audit_service
 
     def _redis_key_category(self, *, key: int) -> str:
         """Get the Redis key for a category."""
@@ -149,6 +154,7 @@ class CategoryService:
         try:
             category = await self.repository.create(created_by_id=created_by_id, data=data)
             await self._invalidate_cache()
+            await self.audit.log_created(entity=category)
             return category
         except IntegrityError:
             raise ConflictError(f"Une catégorie avec le nom {data.name} existe déjà.") from None
@@ -160,10 +166,14 @@ class CategoryService:
         if not user.is_admin and category.created_by_id != user.id:
             raise ForbiddenError("Vous n'avez pas le droit de modifier cette catégorie.")
 
+        changes = changed_fields(category, data.model_dump(exclude_unset=True))
+
         try:
             updated = await self.repository.update(category, data)
         except IntegrityError:
             raise ConflictError(f"Une catégorie avec le nom {data.name} existe déjà.") from None
+
+        await self.audit.log_updated(entity=updated, changed_fields=changes)
 
         # Invalidate cache
         await self._invalidate_cache(key=entity_id)
@@ -176,6 +186,7 @@ class CategoryService:
 
         category = await self.get_category_or_404(entity_id)
         await self.repository.delete(category)
+        await self.audit.log_deleted(entity=category)
 
         # Invalidate cache
         await self._invalidate_cache(key=entity_id)

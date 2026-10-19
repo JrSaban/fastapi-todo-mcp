@@ -2,12 +2,14 @@
 
 from datetime import datetime
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import JsonValue
 from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base
+from src.modules.audit.models import AuditResourceType
 
 
 class ApprovalAction(StrEnum):
@@ -78,3 +80,10 @@ class ApprovalRequest(Base):
 
     def __repr__(self) -> str:
         return f"<ApprovalRequest id={self.id} action={self.action!r}>"
+
+    # Auditable properties
+    audit_resource_type: ClassVar[AuditResourceType] = AuditResourceType.APPROVAL_REQUEST
+
+    @property
+    def audit_owner_id(self) -> int:
+        return self.owner_id

@@ -9,6 +9,8 @@ from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.approvals.repository import ApprovalRequestRepository
 from src.modules.approvals.schemas import ApprovalRequestResponse, ApprovalRequestState
 from src.modules.approvals.service import ApprovalRequestService
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.todos.repository import TodoRepository
 from src.modules.users.repository import UserRepository
@@ -23,7 +25,8 @@ def get_approval_request_service(
     repository = ApprovalRequestRepository(session)
     todo_repository = TodoRepository(session)
     user_repository = UserRepository(session)
-    return ApprovalRequestService(repository, todo_repository, user_repository)
+    audit_service = AuditLogService(repository=AuditLogRepository(session))
+    return ApprovalRequestService(repository, todo_repository, user_repository, audit_service)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)

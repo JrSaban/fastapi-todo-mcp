@@ -13,14 +13,22 @@ from src.core.security import (
 from src.modules.api_tokens.models import ApiToken
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.schemas import ApiTokenCreate
+from src.modules.audit.models import AuditAction, AuditResourceType
+from src.modules.audit.service import AuditLogService
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
 
 
 class ApiTokenService:
-    def __init__(self, repository: ApiTokenRepository, user_repository: UserRepository) -> None:
+    def __init__(
+        self,
+        repository: ApiTokenRepository,
+        user_repository: UserRepository,
+        audit_service: AuditLogService,
+    ) -> None:
         self.repository = repository
         self.user_repository = user_repository
+        self.audit = audit_service
 
     async def create_token(self, current_user: User, data: ApiTokenCreate) -> tuple[ApiToken, str]:
         """Create a new API token for the current user."""
@@ -46,6 +54,7 @@ class ApiTokenService:
             expires_at=expires_at,
         )
 
+        await self.audit.log_created(new_api_token)
         return new_api_token, plain_token
 
     async def list_tokens(self, current_user: User) -> Sequence[ApiToken]:
@@ -59,10 +68,21 @@ class ApiTokenService:
             raise NotFoundError("Token introuvable.")
 
         await self.repository.delete(token)
+        await self.audit.log_deleted(token)
 
     async def revoke_all(self, current_user: User) -> int:
         """Revoke all API tokens for the current user."""
-        return await self.repository.delete_all_for_owner(current_user.id)
+        deleted_ids = await self.repository.delete_all_for_owner(current_user.id)
+
+        for token_id in deleted_ids:
+            await self.audit.record(
+                resource_type=AuditResourceType.API_TOKEN,
+                resource_id=token_id,
+                resource_owner_id=current_user.id,
+                action=AuditAction.DELETED,
+            )
+
+        return len(deleted_ids)
 
     async def prune_expired(self) -> dict[str, int]:
         """Prune expired API tokens."""

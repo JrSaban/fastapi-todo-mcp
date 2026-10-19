@@ -10,6 +10,8 @@ from redis.asyncio import Redis
 from src.core.database import DbSessionDep
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import CurrentUserDep, SessionUserDep
 from src.modules.categories.models import Category
 from src.modules.categories.repository import CategoryRepository
@@ -27,7 +29,8 @@ def get_category_service(
     redis_client: Annotated[Redis, Depends(get_redis_client)],
 ) -> CategoryService:
     repository = CategoryRepository(session)
-    return CategoryService(repository, redis_client)
+    audit_service = AuditLogService(repository=AuditLogRepository(session))
+    return CategoryService(repository, redis_client, audit_service)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)

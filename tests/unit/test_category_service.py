@@ -26,7 +26,9 @@ async def test_list_categories_falls_back_to_db_when_redis_get_fails():
     ]
     mock_category_repo.count.return_value = 1
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     categories, total = await service.list_categories()
 
@@ -47,7 +49,9 @@ async def test_list_categories_falls_back_to_db_when_redis_set_fails():
     ]
     mock_category_repo.count.return_value = 1
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     categories, total = await service.list_categories()
 
@@ -66,7 +70,9 @@ async def test_list_categories_ignores_corrupted_cache_entry():
     ]
     mock_category_repo.count.return_value = 1
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     categories, total = await service.list_categories()
 
@@ -88,7 +94,9 @@ async def test_get_category_cached_falls_back_to_db_when_redis_unavailable():
     )
     mock_category_repo.get_by_id.return_value = fake_category
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     result = await service.get_category_cached(1)
 
@@ -104,7 +112,9 @@ async def test_get_category_or_404_raises_when_not_found():
     mock_redis_client = AsyncMock()
     mock_category_repo.get_by_id.return_value = None
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     with pytest.raises(NotFoundError):
         await service.get_category_or_404(1)
@@ -118,7 +128,9 @@ async def test_get_category_or_404_returns_category_when_found():
     mock_redis_client = AsyncMock()
     mock_category_repo.get_by_id.return_value = fake_category
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     result = await service.get_category_or_404(1)
 
@@ -135,7 +147,9 @@ async def test_create_category(current_user: User):
     fake_category = Category(id=1, name="Test")
     mock_category_repo.create.return_value = fake_category
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryCreate(name="Test")
 
     result = await service.create_category(created_by_id=current_user.id, data=data)
@@ -149,7 +163,9 @@ async def test_create_duplicate_category_raises_conflict_error(current_user: Use
     mock_redis_client = AsyncMock()
     mock_category_repo.create.side_effect = IntegrityError("stmt", {}, Exception("orig"))
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryCreate(name="Sport")
 
     with pytest.raises(ConflictError):
@@ -168,7 +184,9 @@ async def test_update_category_successfully(current_user: User):
     mock_category_repo.get_by_id.return_value = fake_category
     mock_category_repo.update.return_value = fake_category_updated
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryUpdate(name="House")
 
     result = await service.update_category(user=current_user, entity_id=1, data=data)
@@ -185,7 +203,9 @@ async def test_update_category_with_duplicate_name_raises_conflict_error(current
     mock_category_repo.get_by_id.return_value = fake_category
     mock_category_repo.update.side_effect = IntegrityError("stmt", {}, Exception("orig"))
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryUpdate(name="Sport")
 
     with pytest.raises(ConflictError):
@@ -200,7 +220,9 @@ async def test_update_category_by_non_owner_non_admin_raises_forbidden_error(cur
     mock_redis_client = AsyncMock()
     mock_category_repo.get_by_id.return_value = fake_category
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryUpdate(name="House")
 
     with pytest.raises(ForbiddenError):
@@ -218,7 +240,9 @@ async def test_update_category_by_admin_on_others_category_success(current_admin
     mock_category_repo.get_by_id.return_value = fake_category
     mock_category_repo.update.return_value = fake_category_updated
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryUpdate(name="House")
 
     result = await service.update_category(user=current_admin_user, entity_id=1, data=data)
@@ -238,7 +262,9 @@ async def test_update_category_invalidates_item_cache(current_user: User):
     mock_category_repo.get_by_id.return_value = fake_category
     mock_category_repo.update.return_value = fake_category_updated
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryUpdate(name="House")
 
     await service.update_category(user=current_user, entity_id=1, data=data)
@@ -258,7 +284,9 @@ async def test_invalidate_cache_does_not_raise_when_redis_unavailable(current_us
     mock_category_repo.get_by_id.return_value = fake_category
     mock_category_repo.update.return_value = fake_category_updated
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
     data = CategoryUpdate(name="House")
 
     result = await service.update_category(user=current_user, entity_id=1, data=data)
@@ -275,7 +303,9 @@ async def test_delete_category_by_admin_calls_repo_delete_when_found(current_adm
     fake_category = Category(id=1, created_by_id=current_admin_user.id, name="Test")
     mock_category_repo.get_by_id.return_value = fake_category
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     await service.delete_category(user=current_admin_user, entity_id=1)
 
@@ -286,7 +316,9 @@ async def test_delete_category_by_admin_calls_repo_delete_when_found(current_adm
 async def test_delete_category_by_non_admin_raises_forbidden_error(current_user: User):
     mock_category_repo = AsyncMock()
     mock_redis_client = AsyncMock()
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     with pytest.raises(ForbiddenError):
         await service.delete_category(user=current_user, entity_id=1)
@@ -302,7 +334,9 @@ async def test_delete_category_invalidates_item_cache(current_admin_user: User):
     fake_category = Category(id=1, created_by_id=current_admin_user.id, name="Sport")
     mock_category_repo.get_by_id.return_value = fake_category
 
-    service = CategoryService(repository=mock_category_repo, redis_client=mock_redis_client)
+    service = CategoryService(
+        repository=mock_category_repo, redis_client=mock_redis_client, audit_service=AsyncMock()
+    )
 
     await service.delete_category(user=current_admin_user, entity_id=1)
 

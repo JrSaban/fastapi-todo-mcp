@@ -10,6 +10,8 @@ from src.core.exceptions import InvalidPasswordError
 from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.api_tokens.router import ApiTokenServiceDep
+from src.modules.audit.repository import AuditLogRepository
+from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import (
     AuthServiceDep,
     CurrentUserDep,
@@ -39,7 +41,8 @@ def get_user_service(
     session: DbSessionDep,
 ) -> UserService:
     repository = UserRepository(session)
-    return UserService(repository)
+    audit_service = AuditLogService(repository=AuditLogRepository(session))
+    return UserService(repository=repository, audit_service=audit_service)
 
 
 # Type alias pour injection propre et lisible (standard Python moderne)
