@@ -8,8 +8,8 @@ Broker Taskiq : l'intermédiaire entre l'API, qui dépose des jobs, et les worke
   Un seul exemplaire doit tourner, sinon chaque job planifié s'exécute plusieurs fois.
 
 Les jobs vivent dans les fichiers `tasks.py` des modules, découverts par le worker :
-    taskiq worker src.core.broker:broker --fs-discover   # équivalent de queue:work
-    taskiq scheduler src.core.broker:scheduler           # équivalent de schedule:run
+    taskiq worker src.core.broker:broker --fs-discover          # équivalent de queue:work
+    taskiq scheduler src.core.broker:scheduler --fs-discover    # équivalent de schedule:run
 """
 
 from taskiq import AsyncBroker, InMemoryBroker, TaskiqScheduler

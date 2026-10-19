@@ -23,6 +23,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         action: AuditAction | None = None,
         resource_type: AuditResourceType | None = None,
         resource_id: int | None = None,
+        api_token_id: int | None = None,
     ) -> Sequence[AuditLog]:
         """Get paginated audit logs."""
         query = select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
@@ -32,6 +33,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
             action=action,
             resource_type=resource_type,
             resource_id=resource_id,
+            api_token_id=api_token_id,
         )
 
         return await self.paginate(query, skip, limit)
@@ -92,6 +94,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         action: AuditAction | None = None,
         resource_type: AuditResourceType | None = None,
         resource_id: int | None = None,
+        api_token_id: int | None = None,
     ) -> int:
         """Count audit logs with filters."""
         query = select(func.count()).select_from(AuditLog)
@@ -101,6 +104,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
             action=action,
             resource_type=resource_type,
             resource_id=resource_id,
+            api_token_id=api_token_id,
         )
 
         return await self.count_query(query)
@@ -113,6 +117,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
         action: AuditAction | None = None,
         resource_type: AuditResourceType | None = None,
         resource_id: int | None = None,
+        api_token_id: int | None = None,
     ) -> Select:
         """Helper which applies filters on a query."""
         query = self._apply_filter_params(
@@ -122,6 +127,7 @@ class AuditLogRepository(BaseRepository[AuditLog]):
                 FilterParams(column=AuditLog.action, value=action, op="eq"),
                 FilterParams(column=AuditLog.resource_type, value=resource_type, op="eq"),
                 FilterParams(column=AuditLog.resource_id, value=resource_id, op="eq"),
+                FilterParams(column=AuditLog.api_token_id, value=api_token_id, op="eq"),
             ],
         )
 
