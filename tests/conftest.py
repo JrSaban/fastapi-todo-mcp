@@ -88,6 +88,7 @@ def background_code_uses_test_database(monkeypatch: pytest.MonkeyPatch) -> None:
         "src.main",
         "src.modules.api_tokens.tasks",
         "src.modules.approvals.tasks",
+        "src.modules.audit.tasks",
         "src.modules.maintenance.tasks",
         "src.modules.maintenance.router",
         "src.modules.jobs.middleware",
