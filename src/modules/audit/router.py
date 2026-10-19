@@ -8,7 +8,7 @@ from src.core.database import DbSessionDep
 from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.audit.models import AuditAction, AuditResourceType
 from src.modules.audit.repository import AuditLogRepository
-from src.modules.audit.schemas import AuditLogListResponse, AuditLogResponse
+from src.modules.audit.schemas import AuditLogResponse
 from src.modules.audit.service import AuditLogService
 from src.modules.auth.router import SessionUserDep
 
@@ -29,7 +29,7 @@ AuditLogServiceDep = Annotated[AuditLogService, Depends(get_audit_log_service)]
 
 @router.get(
     "",
-    response_model=PaginatedResponse[AuditLogListResponse],
+    response_model=PaginatedResponse[AuditLogResponse],
     summary="Lister tous les logs d'audit",
     description="Retourne une liste paginée de logs d'audit.",
 )
@@ -48,7 +48,7 @@ async def list_audit_logs(
     ] = None,
     resource_id: Annotated[int | None, Query(description="Filtre sur l'ID de la ressource")] = None,
     api_token_id: Annotated[int | None, Query(description="Filtre sur l'ID du token API")] = None,
-) -> PaginatedResponse[AuditLogListResponse]:
+) -> PaginatedResponse[AuditLogResponse]:
     audit_logs, total = await service.list_audit_logs(
         current_user=current_user,
         skip=skip,
