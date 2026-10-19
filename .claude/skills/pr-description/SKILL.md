@@ -7,7 +7,8 @@ disable-model-invocation: true
 
 1. Read `.github/pull_request_template.md` now, every time: it changes. Use exactly its
    current sections, nothing more.
-2. Find the parent branch the same way as `/pr-review` (step 2), and collect
+2. Find the parent branch `P` the same way as `/pr-review` (step 2 of
+   `.claude/skills/pr-review/SKILL.md`, read it), and collect
    `git log --format='%h %s' P..HEAD` and `git diff P...HEAD`. Read the changed files where the
    diff alone doesn't explain the change. If the tree has uncommitted changes, say the
    description doesn't cover them.
@@ -18,7 +19,9 @@ disable-model-invocation: true
    You may read the parent PRs' descriptions (the `body` field of
    `curl -s "https://api.github.com/repos/JrSaban/python-agentic-lab/pulls?state=open"`) to stay
    consistent with them and avoid repeating them. Don't suggest fixing them.
-3. Write the description in **English**, in a single Markdown code block I can paste:
+3. Write the description in **English**, in a single Markdown code block I can paste. The
+   guidance below covers the template's sections as of writing; if the template has changed,
+   follow it, apply the guidance to the sections that remain, and tell me what differs:
    - **Why**: the problem, in a few sentences, from the user's or the system's point of view.
    - **Changes**: one bullet per behaviour or decision, not per file or per commit. Name routes,
      settings and Redis keys exactly as in the code.
@@ -27,5 +30,5 @@ disable-model-invocation: true
      one, with `uv run alembic upgrade head`. Never "No migration", never "Stacked on #N" or
      "merge that one first": the base branch already says it. An empty Notes section is fine.
 4. Outside the code block, in French: the base branch to select on GitHub (the parent from
-   step 2) and a suggested PR title (`type: short description`, same rules as a commit).
+   step 2, `main` when the parent is the merge base with `origin/main`) and a suggested PR title (`type: short description`, same rules as a commit).
 5. Don't open or edit the PR, and don't push: I do it myself.

@@ -61,10 +61,12 @@ files fall under before judging them. In particular:
 - **Migrations**: Ruff-compliant like the existing ones, functional indexes and `CHECK`
   constraints declared by hand, a new module's models imported in `alembic/env.py`, a single
   head (from the `alembic heads` outcome).
-- **Commits** (from the `P..HEAD` list only, in both modes: parent branches are already
-  pushed, their commits can't be reworded): one line, `type: short description` with a `CONTRIBUTING.md`
+- **Commits** (from the `P..HEAD` list only, in both modes: parent branches have their
+  own review, and rewording them would mean restacking every child branch): one line, `type: short description` with a `CONTRIBUTING.md`
   type matching what the commit contains, not the branch; no trailer; one topic per commit.
-  Suggest the replacement message.
+  Only a message that breaks these rules or misdescribes the commit is a finding: a missing
+  verb or a matter of wording is not (the `CONTRIBUTING.md` examples are examples, not a
+  required form). Suggest the replacement message.
 - **Branch**: its name follows `CONTRIBUTING.md` and matches the topic of the changes.
 - **Docs and roadmap**:
   - branch mode: a missing doc update is **not** a finding, it comes in the last sub-task.
