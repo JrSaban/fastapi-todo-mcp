@@ -13,8 +13,17 @@ The whole repo is the source of truth: `src/`, `mcp_server/`, `tests/`, `alembic
 `.env.mcp.example`. Ignore `.venv/`, `.git/`, `__pycache__/` and `uv.lock`.
 Never open `.env` or `.env.mcp`: they hold real secrets.
 
-If the caller gives a list of changed files, focus on the doc sections those files affect.
-Otherwise review every section.
+## Modes
+
+The caller says which one.
+
+- **full**: review every section of the three files, with all the checks below.
+- **diff** (end-of-task check): the caller gives the diff of the three docs since the branch
+  left `main`, and the list of code files changed since then.
+  - Review only the lines added or changed in that diff: check them against the code and
+    flag generic content in them. Do not report issues in untouched text.
+  - From the changed code files, flag a missing doc update only for a cross-cutting decision
+    (same rule as CLAUDE.md omissions below), and a ROADMAP item the changes finish.
 
 ## What to check
 
