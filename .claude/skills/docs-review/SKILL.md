@@ -2,7 +2,7 @@
 name: docs-review
 description: Review CLAUDE.md, README.md and ROADMAP.md against the code, then apply approved changes.
 argument-hint: "[full]"
-allowed-tools: Bash(git merge-base:*), Bash(git diff:*), Bash(git status:*)
+allowed-tools: Bash(git merge-base:*), Bash(git diff:*), Bash(git status:*), Bash(docker compose config -q), Bash(uv sync --frozen --dry-run), Bash(uv run pytest --collect-only -q)
 disable-model-invocation: true
 ---
 
@@ -17,14 +17,22 @@ Arguments: $ARGUMENTS
      changed code files.
    If both are empty, say so and stop: suggest `/docs-review full` instead. If only the docs
    diff is empty, still run the review: the code may need a doc update nobody wrote.
-2. Delegate the review to the docs-reviewer subagent, naming the mode and, in diff mode,
-   passing the docs diff and the changed code files.
-3. Show me its list as is, numbered.
-4. Wait for my answer: I approve, reject or amend each item by number.
-5. Before applying an approved item, re-read the code cited as its evidence. If it does not
+2. Run the setup checks, which have no side effect, exactly as written:
+   - `docker compose config -q` — the compose file is valid. Always with `-q`: without it,
+     the command prints the resolved configuration, `.env` secrets included;
+   - `uv sync --frozen --dry-run` — the dependencies install from `uv.lock` as committed;
+   - `uv run pytest --collect-only -q` — the test suite loads (imports, fixtures), without
+     running the tests.
+   Keep each command's outcome (success, or the error lines). Never run the commands of
+   Getting started that start services or touch a database.
+3. Delegate the review to the docs-reviewer subagent, naming the mode, passing the setup
+   checks' outcomes and, in diff mode, the docs diff and the changed code files.
+4. Show me its list as is, numbered.
+5. Wait for my answer: I approve, reject or amend each item by number.
+6. Before applying an approved item, re-read the code cited as its evidence. If it does not
    support the finding, tell me instead of applying it. An approved `unverifiable` item is
    checked first and applied only if the check confirms the issue.
-6. Apply only the approved items, following the docs' own rules: English, and for CLAUDE.md
+7. Apply only the approved items, following the docs' own rules: English, and for CLAUDE.md
    the rule stated at its top (project decisions only). Generic content is removed, not
    reworded. A finished ROADMAP item is deleted, not rewritten.
-7. Show `git diff` of the doc files, then stop. Do not commit.
+8. Show `git diff` of the doc files, then stop. Do not commit.
