@@ -68,6 +68,7 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
                 or_(ApiToken.last_used_at.is_(None), ApiToken.last_used_at < older_than),
             )
             .values(last_used_at=now)
+            .execution_options(synchronize_session="fetch")
         )
         await self.session.execute(query)
 
