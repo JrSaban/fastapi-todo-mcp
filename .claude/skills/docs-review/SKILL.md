@@ -2,7 +2,7 @@
 name: docs-review
 description: Review CLAUDE.md, README.md and ROADMAP.md against the code, then apply approved changes.
 argument-hint: "[full]"
-allowed-tools: Bash(git merge-base:*), Bash(git diff:*), Bash(git status:*), Bash(docker compose config -q), Bash(uv sync --frozen --dry-run), Bash(uv run pytest --collect-only -q)
+allowed-tools: Bash(git fetch -q --prune origin), Bash(git merge-base:*), Bash(git diff:*), Bash(git status:*), Bash(docker compose config -q), Bash(uv sync --frozen --dry-run), Bash(uv run pytest --collect-only -q)
 disable-model-invocation: true
 ---
 
@@ -10,7 +10,9 @@ Arguments: $ARGUMENTS
 
 1. Mode. If the arguments contain `full`, the review is full. Otherwise it is the diff mode,
    an end-of-task check covering every stacked branch since `main`:
-   - `git merge-base main HEAD` gives the base commit;
+   - `git fetch -q --prune origin`, then `git merge-base origin/main HEAD` gives the base
+     commit. Never the local `main`: it may be behind GitHub, and the diff would then include
+     doc changes already merged;
    - `git diff <base> -- CLAUDE.md README.md ROADMAP.md` gives the docs diff, uncommitted
      changes included;
    - `git diff --name-only <base>` plus the untracked files of `git status --short` give the
