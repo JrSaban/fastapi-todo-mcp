@@ -3,5 +3,19 @@
     "commit": "",
     "pr": "",
     "sessionUrl": false
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.mcp)",
+      "Read(./.env.evals)",
+      "Bash(cat .env)",
+      "Bash(cat .env.mcp)",
+      "Bash(cat .env.evals)",
+      "Bash(head .env*)",
+      "Bash(tail .env*)",
+      "Bash(less .env*)",
+      "Bash(more .env*)"
+    ]
   }
 }

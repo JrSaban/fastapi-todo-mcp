@@ -30,6 +30,9 @@ dev = [
     "rich>=15.0.0",
     "ruff>=0.16.4",
 ]
+evals = [
+    "anthropic>=2.1.0",
+]
 mcp = [
     "httpx>=0.28.1",
     "mcp>=2.3.0",
@@ -48,4 +51,4 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.uv]
-default-groups = ["dev", "mcp"]
+default-groups = ["dev", "mcp", "evals"]

@@ -36,7 +36,7 @@ a changed signature, a query on a model that gained a column). Do not report iss
 branch doesn't touch. Read the changed files whole, not only the hunks: a hunk often looks right
 without its surroundings.
 
-Never open `.env` or `.env.mcp`: they hold real secrets.
+Never open `.env`, `.env.mcp` or `.env.evals`: they hold real secrets.
 
 ## What to check
 

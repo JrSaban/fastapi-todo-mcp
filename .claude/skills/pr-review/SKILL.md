@@ -65,7 +65,7 @@ scripts next to this file are tested; use them rather than redoing their work by
 8. Before applying an approved item, re-read the code it cites. If it doesn't support the
    finding, tell me instead of applying it. An approved `unverifiable` item is checked first:
    for a test suspected not to prove its fix, build a clean copy of `HEAD` as in step 4
-   (`git archive HEAD | tar -x`, so no `.env`, `.env.mcp` or other local file comes along),
+   (`git archive HEAD | tar -x`, so no `.env`, `.env.mcp`, `.env.evals` or other local file comes along),
    revert the fix there and run that test with the same `env -i` command; it must fail.
    In final mode, a fix for code from a parent branch is still made on the current branch, as a
    new commit: changing a parent from here would mean restacking every child branch.
