@@ -9,25 +9,20 @@ donc comme en production, et ce qu'un appel d'outil de l'agent écrit existe enc
 transaction autour du test : les commits sont réels.
 """
 
-import os
 from contextlib import asynccontextmanager
 
 import fakeredis
 from sqlalchemy import StaticPool, event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-os.environ["JWT_SECRET_KEY"] = "eval-secret-key-not-for-production-1234567890"
-os.environ["APP_ENV"] = "test"
-os.environ["DEBUG"] = "False"
-
-import src.core.database as database  # noqa: E402
-import src.core.redis as core_redis  # noqa: E402
-import src.main as main  # noqa: E402
-from src.core.database import Base  # noqa: E402
-from src.core.security import generate_api_token, hash_password, hash_token  # noqa: E402
-from src.modules.api_tokens.repository import ApiTokenRepository  # noqa: E402
-from src.modules.users.repository import UserRepository  # noqa: E402
-from src.modules.users.schemas import UserCreate  # noqa: E402
+import src.core.database as database
+import src.core.redis as core_redis
+import src.main as main
+from src.core.database import Base
+from src.core.security import generate_api_token, hash_password, hash_token
+from src.modules.api_tokens.repository import ApiTokenRepository
+from src.modules.users.repository import UserRepository
+from src.modules.users.schemas import UserCreate
 
 engine = create_async_engine(
     "sqlite+aiosqlite:///:memory:",
