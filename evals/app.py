@@ -67,7 +67,7 @@ async def eval_app():
 
     database.async_session_factory = session_factory
     main.async_session_factory = session_factory
-    core_redis.redis_client = fakeredis.FakeAsyncRedis()
+    core_redis.redis_client = fakeredis.FakeAsyncRedis(decode_responses=True)
 
     try:
         async with session_factory() as session:
