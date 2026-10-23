@@ -7,6 +7,7 @@ import pytest
 from anthropic import AsyncAnthropic
 from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
 
+import evals.__main__ as eval_command
 import src.core.database as database
 import src.core.redis as core_redis
 import src.main as main
@@ -110,6 +111,12 @@ class FakeModel:
         self.verdict = verdict
         self.requests: list[dict[str, Any]] = []
         self.judged: list[str] = []
+
+    async def __aenter__(self) -> "FakeModel":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        pass
 
     async def create(self, **kwargs: Any) -> Message:
         self.requests.append({**kwargs, "messages": list(kwargs["messages"])})
@@ -272,6 +279,40 @@ async def test_the_loop_stops_after_max_turns() -> None:
     assert len(run.tool_calls) == MAX_TURNS
     assert run.final_text is None
     assert run.stop_reason == "tool_use"
+
+
+async def test_the_command_counts_passed_runs_and_reports_each_failure_once(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A crashed run counts as a failure without stopping the next ones, and a failure seen in
+    several runs is printed once."""
+    outcomes: list[list[str] | Exception] = [
+        RuntimeError("boom"),
+        [],
+        ["Expected 1 todo"],
+        ["Expected 1 todo"],
+    ]
+
+    async def fake_run_once(anthropic_client: AsyncAnthropic, scenario: Scenario) -> list[str]:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    scenario = _scenario("create_todo")
+    monkeypatch.setattr(eval_command, "AsyncAnthropic", lambda: FakeModel([], ""))
+    monkeypatch.setattr(eval_command, "SCENARIOS", [scenario])
+    monkeypatch.setattr(eval_command, "RUNS", 4)
+    monkeypatch.setattr(eval_command, "_run_once", fake_run_once)
+
+    await eval_command.main()
+
+    assert capsys.readouterr().out.splitlines() == [
+        f"{scenario.name:<35} passed 1/4",
+        "  - Execution crashed: RuntimeError('boom')",
+        "  - Expected 1 todo",
+    ]
+    assert outcomes == []
 
 
 async def test_each_eval_run_starts_from_an_empty_database() -> None:
