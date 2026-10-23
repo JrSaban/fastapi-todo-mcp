@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/JrSaban/python-agentic-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/JrSaban/python-agentic-lab/actions/workflows/ci.yml)
 
-A REST API for managing todos and categories, built with **FastAPI** and **Clean Architecture** in Python. Built as a hands-on way to learn Python, FastAPI and SQLAlchemy, coming from a PHP/Laravel background — every module was written and tested from scratch, including JWT authentication with rotating refresh tokens, ownership-based authorization, a Redis cache, and a generic repository layer using Python 3.12's native generics.
+A REST API for managing todos and categories, built with **FastAPI** and **Clean Architecture** in Python, and the lab for two learning goals. The first is moving from PHP/Laravel to Python, FastAPI and SQLAlchemy: I write the production code, from JWT authentication with rotating refresh tokens to a generic repository layer on Python 3.12's native generics. The second is learning to build software *with* AI agents, and *for* them. Claude Code explains, reviews my code and writes the tests and the documentation, while the API is exposed to agents through an MCP server, with personal API tokens, human approval of bulk actions, an audit log, and evals that measure how a real Claude model uses it.
 
 ## Tech stack
 
@@ -12,6 +12,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **PostgreSQL** · **Redis** (cache, refresh tokens, rate-limit counters, idempotency keys, job queue)
 - **Taskiq** — async background jobs and scheduling (worker + scheduler processes)
 - **MCP Python SDK** — the MCP server that lets an AI agent use the API
+- **Anthropic Python SDK** — evals that run a real Claude model on the MCP tools
 - **Pydantic v2** — request/response validation and serialization
 - **argon2-cffi** — password hashing · **PyJWT** — access tokens
 - **structlog** — JSON logs with a request ID on every line
@@ -23,6 +24,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 
 - **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete, delete and restore todos, and list and read categories, through 14 tools. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
 - **Human approval for an agent's bulk actions** — an agent deletes one todo at a time directly, but deleting all completed todos at once only creates a request, which the user approves from a login session; the agent can follow it, or cancel it when the user asks, but never approve it. One request per action can be pending at a time, it expires after 7 days, and requests are kept as history for 3 months after that. The same action from a login session runs immediately
+- **Evals for the MCP tools** — a command runs a real Claude model as an agent through ten scenarios, five times each, and prints a pass rate per scenario: does it pick the right tool and arguments, does it say a bulk deletion awaits approval instead of working around it, does it refuse instructions hidden in a todo title or a category name
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
 - **Personal API tokens** — long-lived, revocable tokens for agents (up to 5 active per user, 30 days, 90 days or no expiry), shown once at creation and stored hashed; they can't manage the account or act as an admin
 - **Role-based access control** — regular users vs. admins, with dedicated endpoints to promote/demote or (de)activate accounts (protected against locking out the last remaining admin)
@@ -50,6 +52,7 @@ A few decisions worth a second look if you're skimming the code:
 - **Retries that can't create duplicates, even concurrent ones.** A client that times out and retries is the classic duplicate-maker — and the retry usually arrives while the first request is still running. The idempotency key is therefore claimed atomically in Redis (`SET NX`) *before* the request runs, so a concurrent retry gets a `409` instead of running twice, as long as the first request finishes within the lock's TTL (30 seconds). Only successful responses are stored, and only once the database transaction has actually committed.
 - **An agent gets no back door.** The MCP server lives outside `src/` and never imports it: it only calls the HTTP API, with the user's API token. Everything built to protect the API — rate limits, idempotency, ownership — therefore applies to the agent too, and an API token can't act as an admin or manage the account. Retrying a creation reuses the agent's idempotency key, so a blind retry never duplicates.
 - **A human stays in the loop where it matters.** An agent's bulk deletion becomes a request that freezes the exact todos it targets, chosen by the server rather than by the agent; the user approves that list, nothing more. Approving is a single conditional `UPDATE` on the pending row, so two approvals at once can't run the deletion twice, and an expired request can't be approved at all. Stored texts — especially category names, shared between users — can carry instructions aimed at the agent: the MCP server tells the model they are data, but the real limit is structural, since a token can neither manage the account, nor act as an admin, nor approve anything — nor create or rename a category, the one text every other user's agent would read.
+- **An agent's behaviour is measured, not assumed.** The evals check what the agent actually did — the rows left in the database and the tools it called — rather than what it says it did. A cheaper model acts as a judge only for what can't be checked that way, the wording of a reply. Each run starts from a fresh in-memory app whose requests commit as in production, and the harness itself is tested in CI against a scripted fake model, at no cost.
 - **A cache that never takes the API down.** Paginated category lists are invalidated with a generation counter (one `INCR` instead of hunting for every cached page). Every Redis call on the cache path is allowed to fail: the request falls back to PostgreSQL and logs a warning, except a failed read of the generation counter, which silently falls back to generation 0.
 - **Generic repository layer.** `BaseRepository[ModelT: Base]` (`src/core/repository.py`) uses Python 3.12's native generic syntax (`class Foo[T]`) to share pagination, counting and typed filtering across every repository, while each resource keeps its own fully-typed filter parameters — no dynamic/untyped filter dicts. A `SoftDeleteRepository` layer adds restoring and the pruning of old soft-deleted rows to the two models that need it, and only to them.
 - **Clean Architecture, enforced consistently.** Every module follows the same `router → service → repository → models` layering; services raise framework-agnostic exceptions (`NotFoundError`, `ForbiddenError`, ...) mapped to HTTP status codes in one place, never `HTTPException` scattered through the business logic.
@@ -110,6 +113,18 @@ uv run ruff check .        # lint
 uv run ruff format .       # format
 ```
 
+## Running the evals
+
+The evals call the Anthropic API, so they cost money (about $1 for a full pass) and never run in CI. They need no database or Redis either.
+
+1. Create an API key in the [Claude Console](https://console.anthropic.com/).
+2. Copy `.env.evals.example` to `.env.evals` (gitignored) and put the key in `ANTHROPIC_API_KEY`.
+3. Run:
+
+```bash
+uv run --env-file .env.evals python -m evals
+```
+
 ## API overview
 
 All routes are prefixed with `/api/v1`, except `GET /health`, which needs no authentication and is never rate-limited. `POST /todos`, `POST /categories` and `POST /todos/delete-completed` accept an `Idempotency-Key` header, required when authenticating with an API token.
@@ -167,6 +182,7 @@ src/
 │   └── todos_categories/  # many-to-many association table
 └── main.py          # app, middlewares (idempotency, rate limit, request ID), exception handler
 mcp_server/          # MCP server for AI agents: an HTTP client of the API, never imports src/
+evals/               # evals: a real Claude model uses the MCP tools, scenarios check what it did
 alembic/versions/    # migrations
 tests/               # integration tests + tests/unit/ for isolated service tests
 ```

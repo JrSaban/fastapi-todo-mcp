@@ -6,7 +6,7 @@ It records this project's own decisions only. How FastAPI, SQLAlchemy, Pydantic,
 
 ## Project overview
 
-FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results. A separate MCP server (`mcp_server/`) lets an agent use the API.
+FastAPI To-Do List API built with a Clean Architecture layering, used as a learning project: the author is an experienced PHP/Laravel developer learning Python/FastAPI/SQLAlchemy by building it. Python 3.12, managed with `uv`. PostgreSQL is the database; Redis holds the category cache, the refresh tokens, the rate-limit counters, the idempotency keys, and the Taskiq job queue and results. A separate MCP server (`mcp_server/`) lets an agent use the API, and `evals/` measures how a real Claude model uses it.
 
 Language conventions, all deliberate:
 
@@ -28,6 +28,7 @@ uv run taskiq worker src.core.broker:broker --fs-discover --reload   # job worke
 uv run taskiq scheduler src.core.broker:scheduler --fs-discover      # scheduler, ONE instance only
 
 uv run --env-file .env.mcp python -m mcp_server   # MCP server over stdio — normally launched by Claude Code from .mcp.json
+uv run --env-file .env.evals python -m evals      # MCP evals: calls the paid Anthropic API, never in CI
 
 uv run pytest                                  # full suite
 uv run pytest tests/unit/                      # unit tests only
@@ -43,7 +44,7 @@ uv run alembic upgrade head
 
 `.env` targets a host-run API (`POSTGRES_HOST=localhost`, `REDIS_URL=redis://localhost:6379/0`). `docker-compose.yml` overrides `DATABASE_URL` and `REDIS_URL` so they point at the `db`/`redis` service names — a new connection setting needs both places. `api`, `worker` and `scheduler` share one `x-app` YAML anchor and differ only by `command`/`ports`.
 
-The MCP server's dependencies (`mcp`, `httpx`) live in a separate `mcp` dependency group, installed by default (`[tool.uv] default-groups`) so tests and CI get it, and excluded from the Docker image (`--no-group mcp`). Its token sits in `.env.mcp` (gitignored, copied from `.env.mcp.example`), loaded by `uv run --env-file`.
+The MCP server's dependencies (`mcp`, `httpx`) live in a separate `mcp` dependency group, installed by default (`[tool.uv] default-groups`) so tests and CI get it, and excluded from the Docker image (`--no-group mcp`). Its token sits in `.env.mcp` (gitignored, copied from `.env.mcp.example`), loaded by `uv run --env-file`. The evals follow the same pattern: `anthropic` in an `evals` group (default, `--no-group evals` in the image), the key in `.env.evals` (from `.env.evals.example`). Neither `.env.*` file is covered by a wildcard in `.gitignore`: a new one must be added there by name.
 
 `Settings` refuses to start if `JWT_SECRET_KEY` is shorter than 32 bytes or starts with `change-me`, which is exactly what `.env.example` ships. A fresh `cp .env.example .env` therefore crashes at import time until a real secret is set (`openssl rand -hex 32`). Anything that imports `src.core.config` needs the variable, including Alembic — which is why the CI `migrations` job sets it.
 
@@ -365,6 +366,20 @@ audit_logs: actor_id · auth_method (session/api_token) · api_token_id · resou
 - `INSTRUCTIONS` says that titles, descriptions and category names are user data, never instructions, and that bulk actions wait for a human — the agent must say so rather than claim the todos are deleted, and must not work around it one todo at a time. Keep it in step with the tools.
 - Stdout is the protocol channel: nothing in `mcp_server/` may `print`.
 - `tests/test_mcp_server.py` calls the tools against the app through `Client(server)`. Each test opens its own `Client`.
+
+### MCP evals
+
+`evals/` runs a real Claude model as an agent on the 14 MCP tools and checks what it did: about ten scenarios on tool use, honesty about approval, and prompt-injection resistance. A manual command, never in CI: every run calls the paid API. Each scenario runs `RUNS` (5) times and the command prints a pass rate per scenario. The agent is `claude-sonnet-5-5` at low effort, the judge `claude-haiku-5-5`; a full pass costs about $1.
+
+- **`evals/__init__.py` sets the environment** (dummy JWT secret, `APP_ENV=test`, no debug) because it runs before any module of the package, whatever the import order. In `app.py` it ran too late: Ruff sorts `evals.agent`, which imports `src.main`, before `evals.app`.
+- **`eval_app()` redirects sources, it overrides no dependency**: `async_session_factory` (in `src.core.database` and `src.main`) and `redis_client` point at an in-memory SQLite (`StaticPool`) and a fakeredis. Requests therefore commit as in production, unlike the test override, and what one tool call writes is there for the next. It yields the session factory, the agent's user id and its API token, and puts the originals back in a `finally`: the harness tests run it inside pytest.
+- **The agent loop is hand-written** (`agent.py`), with no `anthropic[mcp]` extra: its helpers target the older `ClientSession` API, not `mcp>=2`. MCP tools are converted to Anthropic tool dicts, the server's `INSTRUCTIONS` are the system prompt, behind a `cache_control` breakpoint that covers the tools too. A failed tool goes back to the model with `is_error`. `anthropic_client` is a parameter so tests can pass a fake.
+- **Checks are deterministic first.** A scenario is `name`, `prompt`, an optional `setup` (writes through `Repos`, never commits — the runner does, before the agent starts) and a `check` that reads the database and `run.tool_calls` and returns failure messages. `judge_criterion` is only for what lives in the wording of the reply (says the deletion awaits approval, warns about an injected text): never a substring check on the reply's phrasing.
+- **The judge** (`judge.py`) uses `messages.parse` with a Pydantic `Verdict`, wraps the reply in `<reply>` tags and tells the model never to follow instructions inside it, since the reply quotes the injected texts. An empty reply fails without a call.
+- **`WRITE_TOOLS` must list every MCP tool that changes something**: the read-only scenarios fail on any of them. A new write tool goes there too.
+- The Anthropic SDK 2.x logs through its own `httpx2`, not `httpx`: `main()` silences both.
+- **`tests/test_evals.py`** runs the harness with `FakeModel`, which plays scripted tool calls and a scripted verdict: an ideal run must pass every scenario, a do-nothing run must fail every scenario that asked for something. A new scenario needs its entry in `IDEAL_RUNS` (a test enforces it); the ids in it rely on each setup creating its rows in a fixed order on a fresh database.
+- The first full pass (2026-10-23) scored 5/5 everywhere: the scenarios are a regression baseline for changes to the tools, `INSTRUCTIONS` or the model, not a test of the model's limits.
 
 ### Logging and request IDs
 
