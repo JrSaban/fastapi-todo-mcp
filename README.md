@@ -115,7 +115,7 @@ uv run ruff format .       # format
 
 ## Running the evals
 
-The evals call the Anthropic API, so they cost money (about $1 for a full pass) and never run in CI. They need no database or Redis either.
+The evals call the Anthropic API, so every run is billed and they never run in CI. They need no database or Redis either.
 
 1. Create an API key in the [Claude Console](https://console.anthropic.com/).
 2. Copy `.env.evals.example` to `.env.evals` (gitignored) and put the key in `ANTHROPIC_API_KEY`.
