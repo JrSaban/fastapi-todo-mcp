@@ -55,8 +55,9 @@ session_factory = async_sessionmaker(
 async def eval_app():
     """Run the API on a fresh in-memory database and Redis for one eval run.
 
-    Yields the session factory (to set up a scenario's data and check the database afterwards)
-    and the plain API token of the agent's user. On exit, whatever happened, the application is
+    Yields the session factory (to set up a scenario's data and check the database afterwards),
+    the id of the agent's user (the owner of the scenario's data) and the user's plain API token.
+    On exit, whatever happened, the application is
     pointed back at its original database and Redis, and the tables are dropped: Python modules
     live as long as the process, so a harness test run inside pytest must not leave the rest of
     the suite on this database.
@@ -94,7 +95,7 @@ async def eval_app():
 
             await session.commit()
 
-        yield session_factory, plain_token
+        yield session_factory, user.id, plain_token
     finally:
         # --- sortie : s'exécute toujours, même si le scénario plante ---
         database.async_session_factory = original_factory
