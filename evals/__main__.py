@@ -23,7 +23,7 @@ from src.modules.approvals.repository import ApprovalRequestRepository
 from src.modules.categories.repository import CategoryRepository
 from src.modules.todos.repository import TodoRepository
 
-RUNS = 1
+RUNS = 5
 
 
 def _repos(session: AsyncSession) -> Repos:
