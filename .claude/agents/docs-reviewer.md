@@ -10,8 +10,8 @@ Review CLAUDE.md, README.md and ROADMAP.md against the current state of the repo
 
 The whole repo is the source of truth: `src/`, `mcp_server/`, `tests/`, `alembic/`,
 `.github/`, `Dockerfile`, `docker-compose.yml`, `pyproject.toml`, `.env.example`,
-`.env.mcp.example`. Ignore `.venv/`, `.git/`, `__pycache__/` and `uv.lock`.
-Never open `.env` or `.env.mcp`: they hold real secrets.
+`.env.mcp.example`, `.env.evals.example`. Ignore `.venv/`, `.git/`, `__pycache__/` and `uv.lock`.
+Never open `.env`, `.env.mcp` or `.env.evals`: they hold real secrets.
 
 ## Modes
 

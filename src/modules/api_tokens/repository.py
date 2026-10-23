@@ -68,6 +68,8 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
                 or_(ApiToken.last_used_at.is_(None), ApiToken.last_used_at < older_than),
             )
             .values(last_used_at=now)
+            # "evaluate" would compare a loaded naive datetime (SQLite) with an aware one in Python.
+            .execution_options(synchronize_session="fetch")
         )
         await self.session.execute(query)
 
