@@ -22,7 +22,7 @@ Everything runs through `uv run`.
 
 ```bash
 docker compose up -d --build            # API on :8000 (hot-reload on ./src) + Postgres :5432 + Redis :6379 + worker + scheduler
-uv run uvicorn src.main:app --reload    # API on the host, against the compose Postgres/Redis
+uv run uvicorn src.main:app --reload --no-proxy-headers   # API on the host, against the compose Postgres/Redis
 
 uv run taskiq worker src.core.broker:broker --fs-discover --reload   # job worker (queue:work)
 uv run taskiq scheduler src.core.broker:scheduler --fs-discover      # scheduler, ONE instance only
@@ -273,6 +273,7 @@ rate_limit:sensitive_actions:user:<id>
 - **An API token is looked up, never trusted** (`_request_user_id` in `main.py`, `ApiTokenRepository.get_usable_owner_id`): one query applying the same rules as `get_current_user`, so an unknown, expired, admin-owned or deactivated token counts by IP. Counting per token hash without a lookup would hand every random `tda_` value a fresh bucket. The result is computed once per request and kept in `request.state` for the idempotency middleware; if the lookup fails, the request goes on counted by IP.
 - **The general limit fails open.** If Redis raises, the middleware logs `redis_unavailable` and lets the request through uncounted, instead of turning every request into a 500 — a deliberate choice, not a gap to close.
 - **`GET /health` is never counted**, so a monitoring probe can neither consume a quota nor get a 429.
+- **The client IP comes from `X-Forwarded-For` only behind a trusted proxy.** Uvicorn's `ProxyHeadersMiddleware` is wired in `main.py` with `TRUSTED_PROXIES` (a JSON list of IPs or ranges, empty by default: no proxy trusted) and rewrites `request.client.host`, which every IP-based limit reads, the login one in the router included. It must stay the **last middleware declared**, so it wraps the three others. Uvicorn's own handling is switched off with `--no-proxy-headers` (`Dockerfile`, host command): it trusts `127.0.0.1` by default, a second source of truth that the test suite, which never goes through Uvicorn, can't see. The middleware reads the setting when the stack is built, on the first request: `tests/test_trusted_proxies.py` patches its kwargs and resets `app.middleware_stack` rather than `settings`.
 - **`log_requests` must stay declared after `rate_limit` in `main.py`**, so that a 429 from the general limit is still logged and still carries `X-Request-ID`. `test_blocked_request_still_carries_request_id` checks it.
 
 ### Idempotency keys

@@ -33,7 +33,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **Todos ↔ Categories** — many-to-many relationship, with optional eager-loading (`?include=categories`) and filtering by category
 - **Pagination & filtering** — every paginated list endpoint supports `skip`/`limit` (page sizes of 10, 25, 50 or 100); most also take resource-specific filters (status, category, role, ...), a free-text search, or both
 - **Soft deletes** on todos and categories — a deleted row stays in the database but is invisible to the API, like Laravel's `SoftDeletes`, and is deleted for good by a weekly background job after 30 days, like Laravel's `Prunable`. Until then, deleted todos can be listed and restored
-- **Rate limiting** — a general per-user / per-IP request quota, plus stricter limits on failed logins and on wrong-password attempts when changing your email or password or creating an API token
+- **Rate limiting** — a general per-user / per-IP request quota, plus stricter limits on failed logins and on wrong-password attempts when changing your email or password or creating an API token. Behind a reverse proxy, the client IP is read from `X-Forwarded-For`, but only for the proxies listed in `TRUSTED_PROXIES`, so a client can't pick its own IP
 - **Idempotency keys** — an `Idempotency-Key` header on `POST /todos`, `POST /categories` and `POST /todos/delete-completed`, so a retried request returns the original response instead of creating a duplicate; optional for a login session, required for an API token
 - **Background jobs with tracking** — every run is recorded (pending, running, succeeded, failed) and readable through the API, each user seeing their own jobs and admins all of them, scheduled runs included; admins can also start the pruning on demand
 - **Redis caching** on category reads, invalidated on every write
@@ -88,7 +88,7 @@ Interactive API docs (Swagger UI) are available at [http://localhost:8000/docs](
 docker compose up -d db redis
 uv sync
 uv run alembic upgrade head
-uv run uvicorn src.main:app --reload
+uv run uvicorn src.main:app --reload --no-proxy-headers   # client IPs come from TRUSTED_PROXIES only
 uv run taskiq worker src.core.broker:broker --fs-discover        # background jobs, in another terminal
 uv run taskiq scheduler src.core.broker:scheduler --fs-discover  # scheduled jobs (one instance only)
 ```
