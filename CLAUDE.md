@@ -113,6 +113,7 @@ Services return ORM models and the router serializes them through `response_mode
 | `logging.py` | `structlog` setup. |
 | `rate_limit.py` | `increment_rate_limit` / `reserve_attempt` / `release_attempt` / `seconds_until_reset`, the Redis counters behind every rate limit (see below). |
 | `idempotency.py` | Redis storage of idempotency keys: claim, read, save, release (see below). |
+| `middlewares.py` | The three HTTP middlewares (`idempotency`, `rate_limit`, `log_requests`) and the helpers that identify a request's user. It only defines them: `main.py` registers them with `app.middleware("http")(...)`, and that registration order decides which wraps which. A test or the evals that redirect something these middlewares use (`async_session_factory`, `ApiTokenRepository`, the idempotency functions) patch it here, not in `src.main`. |
 
 ### Generic repository layer
 
@@ -255,7 +256,7 @@ Three independent limits, all fixed-window counters in Redis, all answering 429 
 
 | Limit | Where | Counted per | What counts |
 |---|---|---|---|
-| **General** | `rate_limit` middleware in `main.py` | user ID from a valid access token or usable API token, else client IP | every request except `GET /health` |
+| **General** | `rate_limit` middleware (`middlewares.py`) | user ID from a valid access token or usable API token, else client IP | every request except `GET /health` |
 | **Login** | `POST /login` | client IP **and** email, separately — either one blocks | failed logins only |
 | **Sensitive actions** | `PATCH /users/me/email`, `/me/password`, `POST /api-tokens` | user, one counter shared by all three | wrong current password only (`InvalidPasswordError`) |
 
@@ -271,15 +272,15 @@ rate_limit:sensitive_actions:user:<id>
 - **Only failures count** on login and sensitive actions, so a legitimate user isn't throttled by succeeding: a success, any other error, and a 422 all give the attempt back. The 422 matters because the sensitive-action dependency doesn't read the body, so FastAPI runs it — and reserves — even when the body is invalid; the login dependency takes `LoginRequest` and is skipped. A successful login does **not** reset the login counters.
 - **A given-back counter can stay at 0.** `release_attempt` deletes the key only when `DECR` goes below zero, i.e. the counter expired while the request ran and `DECR` recreated it at -1 with no TTL. Deleting at 0 would erase an attempt counted in between by another request.
 - **The general limit is a middleware**, because it covers every route. It reads the user ID from the JWT signature with no database call; an invalid or expired token falls back to the IP instead of failing. It returns its 429 as a `JSONResponse` itself rather than raising `TooManyRequestsError`.
-- **An API token is looked up, never trusted** (`_request_user_id` in `main.py`, `ApiTokenRepository.get_usable_owner_id`): one query applying the same rules as `get_current_user`, so an unknown, expired, admin-owned or deactivated token counts by IP. Counting per token hash without a lookup would hand every random `tda_` value a fresh bucket. The result is computed once per request and kept in `request.state` for the idempotency middleware; if the lookup fails, the request goes on counted by IP.
+- **An API token is looked up, never trusted** (`_request_user_id` in `middlewares.py`, `ApiTokenRepository.get_usable_owner_id`): one query applying the same rules as `get_current_user`, so an unknown, expired, admin-owned or deactivated token counts by IP. Counting per token hash without a lookup would hand every random `tda_` value a fresh bucket. The result is computed once per request and kept in `request.state` for the idempotency middleware; if the lookup fails, the request goes on counted by IP.
 - **The general limit fails open.** If Redis raises, the middleware logs `redis_unavailable` and lets the request through uncounted, instead of turning every request into a 500 — a deliberate choice, not a gap to close.
 - **`GET /health` is never counted**, so a monitoring probe can neither consume a quota nor get a 429.
 - **The client IP comes from `X-Forwarded-For` only behind a trusted proxy.** Uvicorn's `ProxyHeadersMiddleware` is wired in `main.py` with `TRUSTED_PROXIES` (a JSON list of IPs or ranges, empty by default: no proxy trusted) and rewrites `request.client.host`, which every IP-based limit reads, the login one in the router included. It must stay the **last middleware declared**, so it wraps the three others. Uvicorn's own handling is switched off with `--no-proxy-headers` (`Dockerfile`, host command): it trusts `127.0.0.1` by default, a second source of truth that the test suite, which never goes through Uvicorn, can't see.
-- **`log_requests` must stay declared after `rate_limit` in `main.py`**, so that a 429 from the general limit is still logged and still carries `X-Request-ID`. `test_blocked_request_still_carries_request_id` checks it.
+- **`log_requests` must stay registered after `rate_limit` in `main.py`**, so that a 429 from the general limit is still logged and still carries `X-Request-ID`. `test_blocked_request_still_carries_request_id` checks it.
 
 ### Idempotency keys
 
-An `Idempotency-Key` header on `POST /todos`, `POST /categories` and `POST /todos/delete-completed` (`IDEMPOTENT_ROUTES` in `main.py`): a retried request gets the stored response back instead of creating a duplicate. **Optional with a JWT, required with an API token** (400 without it): an agent may retry blindly, a human session may not need it. The middleware knows which by `request.state.auth_method`, set by `_request_user_id`; a token that resolves to no user gets the route's 401, never this 400. The `idempotency` middleware makes the HTTP decisions; `src/core/idempotency.py` only stores, and knows nothing of routes or requests.
+An `Idempotency-Key` header on `POST /todos`, `POST /categories` and `POST /todos/delete-completed` (`IDEMPOTENT_ROUTES` in `middlewares.py`): a retried request gets the stored response back instead of creating a duplicate. **Optional with a JWT, required with an API token** (400 without it): an agent may retry blindly, a human session may not need it. The middleware knows which by `request.state.auth_method`, set by `_request_user_id`; a token that resolves to no user gets the route's 401, never this 400. The `idempotency` middleware makes the HTTP decisions; `src/core/idempotency.py` only stores, and knows nothing of routes or requests.
 
 ```
 idempotency:<user_id>:<key> → {"status": "in_progress", "request_hash"}                        (IDEMPOTENCY_LOCK_TTL_SECONDS)
@@ -292,7 +293,7 @@ idempotency:<user_id>:<key> → {"status": "in_progress", "request_hash"}       
 - **Only 2xx responses are stored.** A 4xx depends on state that can change (a taken category name may be freed), so any non-2xx answer or exception releases the key and the retry runs for real. Replays carry `Idempotent-Replayed: true`.
 - **Stored only after the commit**, which `DbSessionDep`'s `scope="function"` guarantees: a failed commit answers 500 and stores nothing.
 - **Fails closed, unlike the general rate limit.** If Redis is down when claiming, the answer is 503: the client explicitly asked for a no-duplicate guarantee. A Redis failure *after* a success still returns the real 2xx — turning it into an error would push the client to create the duplicate.
-- **Declaration order in `main.py`: `idempotency`, then `rate_limit`, then `log_requests`, then `ProxyHeadersMiddleware`** (last, see "Rate limiting"), so a replay still counts toward the general limit and is still logged.
+- **Registration order in `main.py`: `idempotency`, then `rate_limit`, then `log_requests`, then `ProxyHeadersMiddleware`** (last, see "Rate limiting"), so a replay still counts toward the general limit and is still logged.
 
 ### Background jobs
 
@@ -301,7 +302,7 @@ Taskiq, not ARQ (ARQ requires `redis<6`). `src/core/broker.py` holds the `broker
 - **Exactly one scheduler**: two would send every scheduled job twice. Crons are UTC.
 - **`RedisStreamBroker`, not `ListQueueBroker`**, which crashed idle workers every few seconds with redis-py 8. A job is acknowledged only once handled, so a worker dying mid-job hands it to another — **every job must be safe to run twice.** Its Redis keys are the `taskiq:queue` stream and the `taskiq:result` prefix.
 - **Jobs live in a `tasks.py` per module**, found by `--fs-discover`, which **both the worker and the scheduler need**: without it the scheduler never imports the job and its schedule silently never fires. A job spanning modules goes into `maintenance`. Each job sets an explicit `task_name` (`"<module>:<job>"`), so moving the file doesn't orphan queued messages.
-- **A job opens its own session and commits** (no `DbSessionDep` in the worker), then calls a service. `async_session_factory` is only ever opened at such entry points — `tasks.py`, the tracking middleware, a background task, the HTTP middlewares' API-token lookup (`main.py`) — never in a service or repository. Each of those modules must be listed in `conftest.py`'s `background_code_uses_test_database`, or its tests write into the real Postgres.
+- **A job opens its own session and commits** (no `DbSessionDep` in the worker), then calls a service. `async_session_factory` is only ever opened at such entry points — `tasks.py`, the tracking middleware, a background task, the HTTP middlewares' API-token lookup (`src/core/middlewares.py`) — never in a service or repository. Each of those modules must be listed in `conftest.py`'s `background_code_uses_test_database`, or its tests write into the real Postgres.
 - **Under tests** (`APP_ENV=test`) `broker` is an `InMemoryBroker(await_inplace=True)`: `.kiq()` runs the job, middleware included, before returning.
 - **The API starts and stops the broker** in `main.py`'s `lifespan`; the worker never imports `main.py`.
 - **No retries.** Taskiq's own result store (`TASK_RESULT_TTL_HOURS`) is only for debugging with `wait_result()`; the `jobs` table is the record.
@@ -374,7 +375,7 @@ audit_logs: actor_id · auth_method (session/api_token) · api_token_id · resou
 `evals/` runs a real Claude model as an agent on the 14 MCP tools and checks what it did: about ten scenarios on tool use, honesty about approval, and prompt-injection resistance. A manual command, never in CI: every run calls the paid API. Each scenario runs `RUNS` (5) times and the command prints a pass rate per scenario. The agent is `claude-sonnet-5-5` at low effort, the judge `claude-haiku-5-5`.
 
 - **`evals/__init__.py` sets the environment** (dummy JWT secret, `APP_ENV=test`, no debug) because it runs before any module of the package, whatever the import order. In `app.py` it ran too late: Ruff sorts `evals.agent`, which imports `src.main`, before `evals.app`.
-- **`eval_app()` redirects sources, it overrides no dependency**: `async_session_factory` (in `src.core.database` and `src.main`) and `redis_client` point at an in-memory SQLite (`StaticPool`) and a fakeredis. Requests therefore commit as in production, unlike the test override, and what one tool call writes is there for the next. It yields the session factory, the agent's user id and its API token, and puts the originals back in a `finally`: the harness tests run it inside pytest.
+- **`eval_app()` redirects sources, it overrides no dependency**: `async_session_factory` (in `src.core.database` and `src.core.middlewares`) and `redis_client` point at an in-memory SQLite (`StaticPool`) and a fakeredis. Requests therefore commit as in production, unlike the test override, and what one tool call writes is there for the next. It yields the session factory, the agent's user id and its API token, and puts the originals back in a `finally`: the harness tests run it inside pytest.
 - **The agent loop is hand-written** (`agent.py`), with no `anthropic[mcp]` extra: its helpers target the older `ClientSession` API, not `mcp>=2`. MCP tools are converted to Anthropic tool dicts, the server's `INSTRUCTIONS` are the system prompt, behind a `cache_control` breakpoint that covers the tools too. A failed tool goes back to the model with `is_error`. `anthropic_client` is a parameter so tests can pass a fake.
 - **Checks are deterministic first.** A scenario is `name`, `prompt`, an optional `setup` (writes through `Repos`, never commits — the runner does, before the agent starts) and a `check` that reads the database and `run.tool_calls` — and `run.final_text` for data the reply must name, such as todo titles — and returns failure messages. `judge_criterion` is only for what lives in the wording of the reply (says the deletion awaits approval, warns about an injected text): never a substring check on the reply's phrasing.
 - **The judge** (`judge.py`) uses `messages.parse` with a Pydantic `Verdict`, wraps the reply in `<reply>` tags and tells the model never to follow instructions inside it, since the reply quotes the injected texts. An empty reply fails without a call.
@@ -385,7 +386,7 @@ audit_logs: actor_id · auth_method (session/api_token) · api_token_id · resou
 
 ### Logging and request IDs
 
-`structlog` renders JSON. The `log_requests` middleware in `main.py` clears the context vars, binds a `request_id`, logs one `request_completed` event per request, and echoes the ID in the `X-Request-ID` response header. An incoming `X-Request-ID` is reused only if it is at most 64 characters, otherwise a UUID is generated. Any `structlog.get_logger()` call made during a request inherits the `request_id` automatically — don't pass it around by hand.
+`structlog` renders JSON. The `log_requests` middleware (`src/core/middlewares.py`) clears the context vars, binds a `request_id`, logs one `request_completed` event per request, and echoes the ID in the `X-Request-ID` response header. An incoming `X-Request-ID` is reused only if it is at most 64 characters, otherwise a UUID is generated. Any `structlog.get_logger()` call made during a request inherits the `request_id` automatically — don't pass it around by hand.
 
 ## Known limitations
 

@@ -168,7 +168,8 @@ All routes are prefixed with `/api/v1`, except `GET /health`, which needs no aut
 ```
 src/
 ├── core/            # cross-cutting: database, redis, config, logging, exceptions, security,
-│                    # rate limiting, idempotency, generic repository, task broker
+│                    # rate limiting, idempotency, HTTP middlewares, generic repository,
+│                    # task broker
 ├── modules/
 │   ├── auth/        # login, refresh, logout, JWT and API-token validation
 │   ├── api_tokens/   # personal API tokens for agents
@@ -180,7 +181,7 @@ src/
 │   ├── jobs/         # job tracking: table, Taskiq middleware, status endpoints
 │   ├── maintenance/  # background jobs spanning several modules (weekly pruning)
 │   └── todos_categories/  # many-to-many association table
-└── main.py          # app, middlewares (trusted proxies, idempotency, rate limit, request ID), exception handler
+└── main.py          # app wiring: routers, middleware order, exception handler
 mcp_server/          # MCP server for AI agents: an HTTP client of the API, never imports src/
 evals/               # evals: a real Claude model uses the MCP tools, scenarios check what it did
 alembic/versions/    # migrations
