@@ -180,7 +180,7 @@ src/
 │   ├── jobs/         # job tracking: table, Taskiq middleware, status endpoints
 │   ├── maintenance/  # background jobs spanning several modules (weekly pruning)
 │   └── todos_categories/  # many-to-many association table
-└── main.py          # app, middlewares (idempotency, rate limit, request ID), exception handler
+└── main.py          # app, middlewares (trusted proxies, idempotency, rate limit, request ID), exception handler
 mcp_server/          # MCP server for AI agents: an HTTP client of the API, never imports src/
 evals/               # evals: a real Claude model uses the MCP tools, scenarios check what it did
 alembic/versions/    # migrations
