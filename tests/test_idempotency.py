@@ -145,8 +145,8 @@ async def test_key_vanishing_between_claim_and_read_returns_409(
 ) -> None:
     """The claim fails but the key is gone by the time it's read (expired or released
     in between): the request must not run without holding the claim."""
-    monkeypatch.setattr("src.main.claim_idempotency_key", AsyncMock(return_value=False))
-    monkeypatch.setattr("src.main.get_idempotency_record", AsyncMock(return_value=None))
+    monkeypatch.setattr("src.core.middlewares.claim_idempotency_key", AsyncMock(return_value=False))
+    monkeypatch.setattr("src.core.middlewares.get_idempotency_record", AsyncMock(return_value=None))
 
     response = await _post_todo(authenticated_client, current_user.id)
 

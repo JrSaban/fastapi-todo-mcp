@@ -502,7 +502,7 @@ async def test_identity_lookup_failure_falls_back_to_ip(
     """If the middleware's lookup fails, the request goes on, counted by IP."""
     _, plain = await _issue_token(db_session, current_user.id)
     monkeypatch.setattr(
-        "src.main.ApiTokenRepository.get_usable_owner_id",
+        "src.core.middlewares.ApiTokenRepository.get_usable_owner_id",
         AsyncMock(side_effect=OSError("database down")),
     )
 
@@ -539,7 +539,7 @@ async def test_identity_is_looked_up_once_per_request(
     """Rate limiting and idempotency share one lookup through request.state."""
     _, plain = await _issue_token(db_session, current_user.id)
     lookup = AsyncMock(return_value=current_user.id)
-    monkeypatch.setattr("src.main.ApiTokenRepository.get_usable_owner_id", lookup)
+    monkeypatch.setattr("src.core.middlewares.ApiTokenRepository.get_usable_owner_id", lookup)
 
     await client.post(
         TODOS_PATH,
