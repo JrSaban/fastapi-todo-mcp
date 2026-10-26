@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security.utils import get_authorization_scheme_param
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from src.core.broker import broker
 from src.core.config import settings
@@ -323,6 +324,11 @@ async def log_requests(request: Request, call_next):
         duration_ms=round(duration_ms, 1),
     )
     return response
+
+
+# Must stay the last middleware declared, so it wraps the others: the rate limits read
+# request.client.host, which it rewrites from X-Forwarded-For for trusted proxies only.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.TRUSTED_PROXIES)
 
 
 @app.exception_handler(AppBaseError)
