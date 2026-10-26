@@ -12,7 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.database import DbSessionDep
 from src.core.exceptions import ForbiddenError, TooManyRequestsError, UnauthorizedError
-from src.core.rate_limit import get_retry_after, increment_rate_limit
+from src.core.rate_limit import (
+    get_retry_after,
+    increment_rate_limit,
+    release_attempt,
+    reserve_attempt,
+)
 from src.core.redis import get_redis_client
 from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
 from src.modules.api_tokens.repository import ApiTokenRepository
@@ -121,9 +126,13 @@ async def check_login_rate_limit(
 ) -> None:
     ip_key, email_key = _rate_limit_redis_keys(request, data.email)
 
-    retry_after = await get_retry_after(
-        redis_client, [ip_key, email_key], settings.LOGIN_RATE_LIMIT_MAX_ATTEMPTS
+    retry_after = await reserve_attempt(
+        redis_client,
+        [ip_key, email_key],
+        settings.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+        settings.LOGIN_RATE_LIMIT_WINDOW_MINUTES,
     )
+
     if retry_after is not None:
         raise TooManyRequestsError(
             "Trop de tentatives, veuillez réessayer plus tard.",
@@ -196,14 +205,17 @@ async def login(
     redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: LoginRequest,
 ) -> TokenResponse:
+    failed_attempt: bool = False
+
     try:
         return await service.login(data)
     except UnauthorizedError:
-        ip_key, email_key = _rate_limit_redis_keys(request, data.email)
-        await increment_rate_limit(
-            redis_client, [ip_key, email_key], settings.LOGIN_RATE_LIMIT_WINDOW_MINUTES
-        )
+        failed_attempt = True
         raise
+    finally:
+        if not failed_attempt:
+            ip_key, email_key = _rate_limit_redis_keys(request, data.email)
+            await release_attempt(redis_client, [ip_key, email_key])
 
 
 @router.post(
