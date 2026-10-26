@@ -27,8 +27,9 @@ def _general_key(ip: str) -> str:
 def _trust(monkeypatch: pytest.MonkeyPatch, trusted_proxies: list[str]) -> None:
     """Rebuild the app's middleware stack as if TRUSTED_PROXIES were `trusted_proxies`.
 
-    The middleware reads the setting once, when the stack is built on the first request:
-    patching `settings` afterwards would change nothing. Both changes are undone after the test.
+    The setting is copied into the middleware's kwargs when `main.py` is imported, and the stack
+    is built from them on the first request: patching `settings` would change nothing. Both
+    changes are undone after the test.
     """
     proxy_middleware = next(m for m in app.user_middleware if m.cls is ProxyHeadersMiddleware)
     monkeypatch.setitem(proxy_middleware.kwargs, "trusted_hosts", trusted_proxies)
