@@ -142,13 +142,15 @@ async def test_admin_cannot_create_a_token_and_is_not_counted(
     redis_client: fakeredis.FakeAsyncRedis,
 ) -> None:
     """An admin is refused even with the right password, and the refusal is not mistaken
-    for a wrong password: the sensitive-action counter stays untouched."""
+    for a wrong password: the attempt reserved before the route is given back. The counter
+    may remain at 0, which counts nothing."""
     response = await authenticated_admin.post(
         TOKENS_PATH, json={"name": "Agent", "current_password": PASSWORD}
     )
 
     assert response.status_code == 403
-    assert await redis_client.get(sensitive_action_rate_limit_key(current_admin_user.id)) is None
+    counter = await redis_client.get(sensitive_action_rate_limit_key(current_admin_user.id))
+    assert int(counter or 0) == 0
 
 
 async def test_create_beyond_the_active_limit_returns_409(

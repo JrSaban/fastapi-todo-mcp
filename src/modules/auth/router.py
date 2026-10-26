@@ -1,5 +1,6 @@
 """Routing & Controller Layer pour le domaine Auth."""
 
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -11,8 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.database import DbSessionDep
-from src.core.exceptions import ForbiddenError, TooManyRequestsError, UnauthorizedError
-from src.core.rate_limit import get_retry_after, increment_rate_limit
+from src.core.exceptions import (
+    ForbiddenError,
+    InvalidPasswordError,
+    TooManyRequestsError,
+    UnauthorizedError,
+)
+from src.core.rate_limit import (
+    release_attempt,
+    reserve_attempt,
+)
 from src.core.redis import get_redis_client
 from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
 from src.modules.api_tokens.repository import ApiTokenRepository
@@ -118,23 +127,32 @@ async def check_login_rate_limit(
     request: Request,
     data: LoginRequest,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
-) -> None:
+) -> AsyncGenerator[None, None]:
     ip_key, email_key = _rate_limit_redis_keys(request, data.email)
 
-    retry_after = await get_retry_after(
-        redis_client, [ip_key, email_key], settings.LOGIN_RATE_LIMIT_MAX_ATTEMPTS
+    retry_after = await reserve_attempt(
+        redis_client,
+        [ip_key, email_key],
+        settings.LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+        settings.LOGIN_RATE_LIMIT_WINDOW_MINUTES,
     )
+
     if retry_after is not None:
         raise TooManyRequestsError(
             "Trop de tentatives, veuillez réessayer plus tard.",
             headers={"Retry-After": str(retry_after)},
         )
 
+    failed_attempt: bool = False
 
-async def record_sensitive_action_failure(redis_client: Redis, user_id: int) -> None:
-    """Count one wrong current password toward the user's sensitive-action limit."""
-    key = sensitive_action_rate_limit_key(user_id)
-    await increment_rate_limit(redis_client, [key], settings.SENSITIVE_RATE_LIMIT_WINDOW_MINUTES)
+    try:
+        yield
+    except UnauthorizedError:
+        failed_attempt = True
+        raise
+    finally:
+        if not failed_attempt:
+            await release_attempt(redis_client, [ip_key, email_key])
 
 
 def is_api_token(
@@ -168,16 +186,30 @@ SessionUserDep = Annotated[User, Depends(get_session_user)]
 async def check_sensitive_action_rate_limit(
     current_user: CurrentUserDep,
     redis_client: Annotated[Redis, Depends(get_redis_client)],
-) -> None:
+) -> AsyncGenerator[None, None]:
     key = sensitive_action_rate_limit_key(current_user.id)
-    retry_after = await get_retry_after(
-        redis_client, [key], settings.SENSITIVE_RATE_LIMIT_MAX_ATTEMPTS
+    retry_after = await reserve_attempt(
+        redis_client,
+        [key],
+        settings.SENSITIVE_RATE_LIMIT_MAX_ATTEMPTS,
+        settings.SENSITIVE_RATE_LIMIT_WINDOW_MINUTES,
     )
     if retry_after is not None:
         raise TooManyRequestsError(
             "Trop de tentatives, veuillez réessayer plus tard.",
             headers={"Retry-After": str(retry_after)},
         )
+
+    failed_attempt: bool = False
+
+    try:
+        yield
+    except InvalidPasswordError:
+        failed_attempt = True
+        raise
+    finally:
+        if not failed_attempt:
+            await release_attempt(redis_client, [key])
 
 
 SensitiveActionRateLimitDep = Annotated[None, Depends(check_sensitive_action_rate_limit)]
@@ -191,19 +223,10 @@ SensitiveActionRateLimitDep = Annotated[None, Depends(check_sensitive_action_rat
 )
 async def login(
     service: AuthServiceDep,
-    request: Request,
     rate_limit: RateLimitLoginDep,
-    redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: LoginRequest,
 ) -> TokenResponse:
-    try:
-        return await service.login(data)
-    except UnauthorizedError:
-        ip_key, email_key = _rate_limit_redis_keys(request, data.email)
-        await increment_rate_limit(
-            redis_client, [ip_key, email_key], settings.LOGIN_RATE_LIMIT_WINDOW_MINUTES
-        )
-        raise
+    return await service.login(data)
 
 
 @router.post(

@@ -3,11 +3,8 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
-from redis.asyncio import Redis
 
 from src.core.database import DbSessionDep
-from src.core.exceptions import InvalidPasswordError
-from src.core.redis import get_redis_client
 from src.core.schemas import LimitQuery, PaginatedResponse
 from src.modules.api_tokens.router import ApiTokenServiceDep
 from src.modules.audit.repository import AuditLogRepository
@@ -17,7 +14,6 @@ from src.modules.auth.router import (
     CurrentUserDep,
     SensitiveActionRateLimitDep,
     SessionUserDep,
-    record_sensitive_action_failure,
 )
 from src.modules.users.models import User
 from src.modules.users.repository import UserRepository
@@ -157,18 +153,12 @@ async def update_email(
     auth_service: AuthServiceDep,
     current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
-    redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: UserSelfEmailUpdate,
 ) -> User:
-    try:
-        user = await service.update_email(
-            current_user=current_user,
-            data=data,
-        )
-    except InvalidPasswordError:
-        await record_sensitive_action_failure(redis_client, current_user.id)
-        raise
-
+    user = await service.update_email(
+        current_user=current_user,
+        data=data,
+    )
     await auth_service.revoke_session(current_user)
     return user
 
@@ -189,17 +179,12 @@ async def update_password(
     api_token_service: ApiTokenServiceDep,
     current_user: SessionUserDep,
     sensitive_action_rate_limit: SensitiveActionRateLimitDep,
-    redis_client: Annotated[Redis, Depends(get_redis_client)],
     data: UserPasswordUpdate,
 ) -> User:
-    try:
-        user = await service.update_password(
-            current_user=current_user,
-            data=data,
-        )
-    except InvalidPasswordError:
-        await record_sensitive_action_failure(redis_client, current_user.id)
-        raise
+    user = await service.update_password(
+        current_user=current_user,
+        data=data,
+    )
 
     if data.revoke_api_tokens:
         await api_token_service.revoke_all(current_user)
