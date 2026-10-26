@@ -59,10 +59,15 @@ def test_the_proxy_middleware_wraps_every_other_middleware() -> None:
 
 
 async def test_without_trusted_proxy_the_header_is_ignored(
-    client: AsyncClient, redis_client: fakeredis.FakeAsyncRedis
+    client: AsyncClient,
+    redis_client: fakeredis.FakeAsyncRedis,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With the default setting, even a request from localhost can't choose its IP: unlike
-    Uvicorn's own handling, which trusts 127.0.0.1 and is disabled for that reason."""
+    """With no trusted proxy (the default), even a request from localhost can't choose its IP:
+    unlike Uvicorn's own handling, which trusts 127.0.0.1 and is disabled for that reason. The
+    empty list is set here, not read from the app: a developer's `.env` may fill it."""
+    _trust(monkeypatch, [])
+
     await client.get(COUNTED_PATH, headers={"X-Forwarded-For": SPOOFED_IP})
 
     assert await redis_client.get(_general_key("127.0.0.1")) == "1"
