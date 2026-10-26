@@ -9,8 +9,8 @@ from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
 
 import evals.__main__ as eval_command
 import src.core.database as database
+import src.core.middlewares as middlewares
 import src.core.redis as core_redis
-import src.main as main
 from evals.__main__ import _repos, _run_once
 from evals.agent import MAX_TURNS, MODEL, run_agent
 from evals.app import eval_app
@@ -332,9 +332,9 @@ async def test_the_app_is_pointed_back_at_its_database_and_redis_after_a_run(
     """The harness runs inside pytest: the rest of the suite must not stay on the eval
     database, even when a run fails. The originals are sentinels set here, so a previous test
     that left the eval database in place can't make them match by accident."""
-    factory, main_factory, redis_client = object(), object(), object()
+    factory, middlewares_factory, redis_client = object(), object(), object()
     monkeypatch.setattr(database, "async_session_factory", factory)
-    monkeypatch.setattr(main, "async_session_factory", main_factory)
+    monkeypatch.setattr(middlewares, "async_session_factory", middlewares_factory)
     monkeypatch.setattr(core_redis, "redis_client", redis_client)
 
     with pytest.raises(RuntimeError):
@@ -342,5 +342,5 @@ async def test_the_app_is_pointed_back_at_its_database_and_redis_after_a_run(
             raise RuntimeError
 
     assert database.async_session_factory is factory
-    assert main.async_session_factory is main_factory
+    assert middlewares.async_session_factory is middlewares_factory
     assert core_redis.redis_client is redis_client

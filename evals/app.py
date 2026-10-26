@@ -16,8 +16,8 @@ from sqlalchemy import StaticPool, event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import src.core.database as database
+import src.core.middlewares as middlewares
 import src.core.redis as core_redis
-import src.main as main
 from src.core.database import Base
 from src.core.security import generate_api_token, hash_password, hash_token
 from src.modules.api_tokens.repository import ApiTokenRepository
@@ -62,11 +62,11 @@ async def eval_app():
         await conn.run_sync(Base.metadata.create_all)
 
     original_factory = database.async_session_factory
-    original_main_session = main.async_session_factory
+    original_middlewares_factory = middlewares.async_session_factory
     original_redis_client = core_redis.redis_client
 
     database.async_session_factory = session_factory
-    main.async_session_factory = session_factory
+    middlewares.async_session_factory = session_factory
     core_redis.redis_client = fakeredis.FakeAsyncRedis(decode_responses=True)
 
     try:
@@ -94,7 +94,7 @@ async def eval_app():
     finally:
         # --- sortie : s'exécute toujours, même si le scénario plante ---
         database.async_session_factory = original_factory
-        main.async_session_factory = original_main_session
+        middlewares.async_session_factory = original_middlewares_factory
         core_redis.redis_client = original_redis_client
 
         async with engine.begin() as conn:

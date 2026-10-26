@@ -85,7 +85,7 @@ def background_code_uses_test_database(monkeypatch: pytest.MonkeyPatch) -> None:
     factory, out of reach of dependency_overrides: point them at the test database, or
     every test that runs a job would write into the real Postgres."""
     for module in (
-        "src.main",
+        "src.core.middlewares",
         "src.modules.api_tokens.tasks",
         "src.modules.approvals.tasks",
         "src.modules.audit.tasks",
