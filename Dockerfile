@@ -32,4 +32,4 @@ EXPOSE 8000
 
 # Commande de démarrage par défaut :
 # IMPORTANT : --host 0.0.0.0 permet au serveur d'écouter les connexions venant de l'extérieur du conteneur (votre machine hôte)
-CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--reload"]
