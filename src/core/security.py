@@ -9,10 +9,12 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
 from src.core.config import settings
+from src.modules.api_tokens.models import ApiTokenUsage
 
 _password_hasher = PasswordHasher()
 
 API_TOKEN_PREFIX: str = "tda_"
+MCP_SERVICE_KEY_HEADER: str = "X-MCP-Service-Key"
 
 
 def hash_password(password: str) -> str:
@@ -55,3 +57,19 @@ def generate_api_token() -> str:
 def hash_token(token: str) -> str:
     """Hash a plain text token."""
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def expected_api_token_usage(service_key: str | None) -> ApiTokenUsage | None:
+    """Return the expected usage of an API token based on the service key."""
+    if not str(service_key).strip() or service_key is None:
+        return ApiTokenUsage.API
+
+    if settings.MCP_SERVICE_KEY is None:
+        return None
+
+    mcp_service_key = settings.MCP_SERVICE_KEY.get_secret_value()
+
+    if secrets.compare_digest(service_key.encode(), mcp_service_key.encode()):
+        return ApiTokenUsage.MCP
+
+    return None
