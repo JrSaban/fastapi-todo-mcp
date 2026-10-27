@@ -23,7 +23,13 @@ from src.core.rate_limit import (
     reserve_attempt,
 )
 from src.core.redis import get_redis_client
-from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
+from src.core.security import (
+    API_TOKEN_PREFIX,
+    MCP_SERVICE_KEY_HEADER,
+    decode_access_token,
+    expected_api_token_usage,
+    hash_token,
+)
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.audit.context import Actor, current_actor
 from src.modules.audit.models import AuditAuthMethod
@@ -75,11 +81,17 @@ async def _user_from_access_token(token: str, session: AsyncSession) -> User:
     return user
 
 
-async def _user_from_api_token(token: str, session: AsyncSession) -> User:
+async def _user_from_api_token(
+    *, mcp_key_header: str | None, token: str, session: AsyncSession
+) -> User:
     """Get user from API token."""
+
+    if (usage := expected_api_token_usage(mcp_key_header)) is None:
+        raise UnauthorizedError("Token invalide ou expiré.")
+
     api_token_repository = ApiTokenRepository(session)
     now = datetime.now(UTC)
-    api_token = await api_token_repository.get_active_by_hash(hash_token(token), now)
+    api_token = await api_token_repository.get_active_by_hash(usage, hash_token(token), now)
     if api_token is None:
         raise UnauthorizedError("Token invalide ou expiré.")
 
@@ -105,11 +117,15 @@ async def _user_from_api_token(token: str, session: AsyncSession) -> User:
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     session: DbSessionDep,
+    request: Request,
 ) -> User:
     """Get current user."""
     token = credentials.credentials
     if token.startswith(API_TOKEN_PREFIX):
-        return await _user_from_api_token(token, session)
+        mcp_service_header = request.headers.get(MCP_SERVICE_KEY_HEADER)
+        return await _user_from_api_token(
+            mcp_key_header=mcp_service_header, token=token, session=session
+        )
 
     return await _user_from_access_token(token, session)
 
