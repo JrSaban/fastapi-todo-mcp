@@ -1,4 +1,4 @@
-from pydantic import computed_field, field_validator
+from pydantic import SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     # Trusted proxies
     TRUSTED_PROXIES: list[str] = []
+
+    # MCP server
+    MCP_SERVICE_KEY: SecretStr | None = None
 
     # JWT
     JWT_SECRET_KEY: str
