@@ -17,6 +17,7 @@ from mcp_server.config import Settings
 from mcp_server.server import build_mcp_server
 from src.core.security import generate_api_token, hash_token
 from src.main import app
+from src.modules.api_tokens.models import ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest, ApprovalStatus
 from src.modules.approvals.repository import ApprovalRequestRepository
@@ -41,7 +42,11 @@ async def server(client: AsyncClient, db_session: AsyncSession, current_user: Us
     a real API token of `current_user`. `client` is requested for its overrides."""
     plain = generate_api_token()
     await ApiTokenRepository(db_session).create(
-        owner_id=current_user.id, name="Agent", token_hash=hash_token(plain), expires_at=None
+        owner_id=current_user.id,
+        name="Agent",
+        usage=ApiTokenUsage.API,
+        token_hash=hash_token(plain),
+        expires_at=None,
     )
     await db_session.commit()
 

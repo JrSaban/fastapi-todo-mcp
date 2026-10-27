@@ -16,7 +16,7 @@ from src.core.security import (
     generate_api_token,
     hash_token,
 )
-from src.modules.api_tokens.models import ApiToken
+from src.modules.api_tokens.models import ApiToken, ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.tasks import prune_expired_api_tokens
 from src.modules.auth.router import sensitive_action_rate_limit_key
@@ -37,6 +37,7 @@ async def _issue_token(
     session: AsyncSession,
     owner_id: int,
     *,
+    usage: ApiTokenUsage = ApiTokenUsage.API,
     expires_at: datetime | None = None,
     last_used_at: datetime | None = None,
 ) -> tuple[ApiToken, str]:
@@ -47,7 +48,11 @@ async def _issue_token(
     """
     plain = generate_api_token()
     token = await ApiTokenRepository(session).create(
-        owner_id=owner_id, name="Agent", token_hash=hash_token(plain), expires_at=expires_at
+        owner_id=owner_id,
+        name="Agent",
+        usage=usage,
+        token_hash=hash_token(plain),
+        expires_at=expires_at,
     )
     if last_used_at is not None:
         token.last_used_at = last_used_at

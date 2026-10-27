@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.security import create_access_token, generate_api_token, hash_token
-from src.modules.api_tokens.models import ApiToken
+from src.modules.api_tokens.models import ApiToken, ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest
 from src.modules.approvals.repository import ApprovalRequestRepository
@@ -38,6 +38,7 @@ async def _token(session: AsyncSession, owner_id: int) -> ApiToken:
     return await ApiTokenRepository(session).create(
         owner_id=owner_id,
         name="Agent",
+        usage=ApiTokenUsage.API,
         token_hash=hash_token(generate_api_token()),
         expires_at=None,
     )
@@ -48,7 +49,11 @@ async def _committed_token(session: AsyncSession, owner_id: int) -> tuple[ApiTok
     single shared test connection, uncommitted setup included."""
     plain = generate_api_token()
     token = await ApiTokenRepository(session).create(
-        owner_id=owner_id, name="Agent", token_hash=hash_token(plain), expires_at=None
+        owner_id=owner_id,
+        name="Agent",
+        usage=ApiTokenUsage.API,
+        token_hash=hash_token(plain),
+        expires_at=None,
     )
     await session.commit()
     return token, plain
@@ -256,7 +261,11 @@ async def test_an_api_token_write_records_which_token_acted(
     """Through the real authentication: the actor comes from get_current_user itself."""
     plain = generate_api_token()
     token = await ApiTokenRepository(db_session).create(
-        owner_id=current_user.id, name="Agent", token_hash=hash_token(plain), expires_at=None
+        owner_id=current_user.id,
+        name="Agent",
+        usage=ApiTokenUsage.API,
+        token_hash=hash_token(plain),
+        expires_at=None,
     )
     await db_session.commit()
 

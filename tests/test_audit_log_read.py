@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.security import generate_api_token, hash_token
+from src.modules.api_tokens.models import ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.audit.models import AuditAction, AuditAuthMethod, AuditLog, AuditResourceType
 from src.modules.audit.repository import AuditLogRepository
@@ -216,7 +217,11 @@ async def test_an_api_token_cannot_read_the_log(
     await _entry(db_session, current_user.id)
     plain = generate_api_token()
     await ApiTokenRepository(db_session).create(
-        owner_id=current_user.id, name="Agent", token_hash=hash_token(plain), expires_at=None
+        owner_id=current_user.id,
+        name="Agent",
+        usage=ApiTokenUsage.API,
+        token_hash=hash_token(plain),
+        expires_at=None,
     )
     await db_session.commit()
 
