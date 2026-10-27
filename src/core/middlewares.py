@@ -113,9 +113,9 @@ async def _request_user_id(request: Request) -> str | None:
         request.state.auth_method = "api_token"
         mcp_key_header = request.headers.get(MCP_SERVICE_KEY_HEADER)
         if (usage := expected_api_token_usage(mcp_key_header)) is None:
-            return None
-
-        user_id = await _user_id_from_api_token(usage, token)
+            user_id = None
+        else:
+            user_id = await _user_id_from_api_token(usage, token)
     else:
         request.state.auth_method = "access_token"
         user_id = _user_id_from_access_token(token)
