@@ -139,6 +139,7 @@ async def test_create_defaults_to_the_api_usage(authenticated_client: AsyncClien
         TOKENS_PATH, json={"name": "Script", "current_password": PASSWORD}
     )
 
+    assert response.status_code == 201
     assert response.json()["usage"] == "api"
 
 
