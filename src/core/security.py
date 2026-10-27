@@ -61,7 +61,7 @@ def hash_token(token: str) -> str:
 
 def expected_api_token_usage(service_key: str | None) -> ApiTokenUsage | None:
     """Return the expected usage of an API token based on the service key."""
-    if not str(service_key).strip() or service_key is None:
+    if service_key is None:
         return ApiTokenUsage.API
 
     if settings.MCP_SERVICE_KEY is None:
