@@ -35,21 +35,27 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_active_by_hash(self, token_hash: str, now: datetime) -> ApiToken | None:
+    async def get_active_by_hash(
+        self, usage: ApiTokenUsage, token_hash: str, now: datetime
+    ) -> ApiToken | None:
         """Get active token by its hash."""
         query = select(ApiToken).where(
+            ApiToken.usage == usage,
             ApiToken.token_hash == token_hash,
             or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_usable_owner_id(self, token_hash: str, now: datetime) -> int | None:
+    async def get_usable_owner_id(
+        self, usage: ApiTokenUsage, token_hash: str, now: datetime
+    ) -> int | None:
         """Get owner ID for a usable token hash."""
         query = (
             select(ApiToken.owner_id)
             .join(User, User.id == ApiToken.owner_id)
             .where(
+                ApiToken.usage == usage,
                 ApiToken.token_hash == token_hash,
                 or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
                 User.is_active.is_(True),
