@@ -79,6 +79,18 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("MCP_SERVICE_KEY")
+    @classmethod
+    def validate_mcp_service_key(cls, v: SecretStr | None) -> SecretStr | None:
+        if v is not None:
+            value = v.get_secret_value()
+            if value.startswith("change-me") or len(value.encode()) < 32:
+                raise ValueError(
+                    "MCP_SERVICE_KEY must be at least 32 bytes and must not be the "
+                    "'change-me' placeholder"
+                )
+        return v
+
     # URL de connexion directe (optionnelle, surchargée par Docker Compose)
     DATABASE_URL: str | None = None
 
