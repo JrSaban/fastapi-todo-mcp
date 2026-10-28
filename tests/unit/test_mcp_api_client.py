@@ -158,8 +158,11 @@ async def test_a_remote_client_without_a_caller_token_sends_nothing() -> None:
 
 
 async def test_errors_never_carry_the_token_or_the_service_key() -> None:
+    """A transport error's message can quote the request: only its class name reaches the
+    agent."""
+
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"detail": "Token invalide ou expiré."})
+        raise httpx.ConnectError(f"refused, headers: {dict(request.headers)}", request=request)
 
     with pytest.raises(ToolError) as exc_info:
         await _http_client(handler).request("GET", "/todos", token="tda_caller")

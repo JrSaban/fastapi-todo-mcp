@@ -147,6 +147,32 @@ async def test_an_unknown_host_gets_421() -> None:
     assert seen == []
 
 
+async def test_an_unknown_origin_gets_403() -> None:
+    """DNS rebinding through a browser: the Host is allowed, the page's Origin is not."""
+    seen: list[httpx.Request] = []
+    async with _remote_server(_fake_api(seen)) as client:
+        response = await _call_tool(
+            client, "list_todos", headers={**_bearer(), "Origin": "http://evil.example"}
+        )
+
+    assert response.status_code == 403
+    assert seen == []
+
+
+async def test_an_origin_listed_in_the_settings_is_accepted() -> None:
+    """The allowed origins come from MCP_ALLOWED_ORIGINS, not from a default of the SDK."""
+    seen: list[httpx.Request] = []
+    async with _remote_server(
+        _fake_api(seen), MCP_ALLOWED_ORIGINS=["https://agent.example"]
+    ) as client:
+        response = await _call_tool(
+            client, "list_todos", headers={**_bearer(), "Origin": "https://agent.example"}
+        )
+
+    assert not _tool_result(response)["isError"]
+    assert len(seen) == 1
+
+
 # --- what reaches the API ---
 
 
