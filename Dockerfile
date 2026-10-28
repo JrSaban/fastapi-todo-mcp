@@ -19,13 +19,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY pyproject.toml uv.lock ./
 
 # 2. On installe les dépendances (si le code change mais pas les dépendances, Docker réutilise le cache)
-RUN uv sync --frozen --no-install-project --no-group mcp --no-group evals
+#    Seulement celles de l'API : ni les outils de dev (pytest, ruff), ni le serveur MCP, ni les evals
+RUN uv sync --frozen --no-install-project --no-dev --no-group mcp --no-group evals
 
 # 3. On copie le reste du projet
 COPY . .
 
 # 4. On finalise la synchronisation du projet
-RUN uv sync --frozen --no-group mcp --no-group evals
+RUN uv sync --frozen --no-dev --no-group mcp --no-group evals
+
+# 5. L'environnement est figé : sans ça, chaque `uv run` (API, worker, scheduler, alembic)
+#    réinstallerait au démarrage les groupes par défaut du projet, que le build a exclus
+ENV UV_NO_SYNC=1
 
 # Port d'écoute de l'application
 EXPOSE 8000
