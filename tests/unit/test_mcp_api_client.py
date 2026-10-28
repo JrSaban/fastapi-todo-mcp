@@ -71,8 +71,10 @@ def test_stdio_settings_refuse_the_service_key() -> None:
         Settings(TODO_API_TOKEN=TOKEN, MCP_SERVICE_KEY=SERVICE_KEY)
 
 
-@pytest.mark.parametrize("key", [None, "k" * 31])
-def test_http_settings_require_a_long_enough_service_key(
+@pytest.mark.parametrize(
+    "key", [None, "k" * 31, "change-me" + "k" * 32], ids=["missing", "too-short", "placeholder"]
+)
+def test_http_settings_require_a_real_service_key(
     monkeypatch: pytest.MonkeyPatch, key: str | None
 ) -> None:
     monkeypatch.delenv("MCP_SERVICE_KEY", raising=False)

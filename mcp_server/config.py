@@ -49,13 +49,16 @@ class Settings(BaseSettings):
                 elif self.MCP_SERVICE_KEY is not None:
                     raise ValueError("MCP_SERVICE_KEY is not allowed for stdio transport")
             case "http":
+                # Same rule as the API's MCP_SERVICE_KEY, so both sides refuse the same keys.
+                key = self.MCP_SERVICE_KEY
                 if (
-                    self.MCP_SERVICE_KEY is None
-                    or len(self.MCP_SERVICE_KEY.get_secret_value().encode()) < 32
+                    key is None
+                    or len(key.get_secret_value().encode()) < 32
+                    or key.get_secret_value().startswith("change-me")
                 ):
                     raise ValueError(
-                        "MCP_SERVICE_KEY is required for http transport "
-                        "and must be at least 32 bytes"
+                        "MCP_SERVICE_KEY is required for http transport, must be at least "
+                        "32 bytes and must not be the 'change-me' placeholder"
                     )
                 elif self.TODO_API_TOKEN is not None:
                     raise ValueError("TODO_API_TOKEN is not allowed for http transport")
