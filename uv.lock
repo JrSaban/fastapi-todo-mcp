@@ -1622,6 +1622,8 @@ evals = [
 mcp = [
     { name = "httpx" },
     { name = "mcp" },
+    { name = "pydantic-settings" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -1655,6 +1657,8 @@ evals = [{ name = "anthropic", specifier = ">=2.1.0" }]
 mcp = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mcp", specifier = ">=2.3.0" },
+    { name = "pydantic-settings", specifier = ">=2.11.0" },
+    { name = "uvicorn", specifier = ">=0.39.0" },
 ]
 
 [[package]]
