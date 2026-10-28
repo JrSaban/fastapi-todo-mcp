@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.security import generate_api_token, hash_token
+from src.modules.api_tokens.models import ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.approvals.models import ApprovalAction, ApprovalRequest, ApprovalStatus
 from src.modules.approvals.repository import ApprovalRequestRepository
@@ -30,7 +31,11 @@ async def _issue_token(session: AsyncSession, owner_id: int) -> str:
     """
     plain = generate_api_token()
     await ApiTokenRepository(session).create(
-        owner_id=owner_id, name="Agent", token_hash=hash_token(plain), expires_at=None
+        owner_id=owner_id,
+        name="Agent",
+        usage=ApiTokenUsage.API,
+        token_hash=hash_token(plain),
+        expires_at=None,
     )
     await session.commit()
     return plain

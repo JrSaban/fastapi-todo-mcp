@@ -6,17 +6,19 @@ from unittest.mock import AsyncMock
 import fakeredis
 import pytest
 from httpx import AsyncClient
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.security import (
     API_TOKEN_PREFIX,
+    MCP_SERVICE_KEY_HEADER,
     create_access_token,
     generate_api_token,
     hash_token,
 )
-from src.modules.api_tokens.models import ApiToken
+from src.modules.api_tokens.models import ApiToken, ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.api_tokens.tasks import prune_expired_api_tokens
 from src.modules.auth.router import sensitive_action_rate_limit_key
@@ -31,12 +33,14 @@ TODOS_PATH = "/api/v1/todos"
 CATEGORIES_PATH = "/api/v1/categories"
 IP_KEY = "rate_limit:general:ip:127.0.0.1"
 PASSWORD = "secret123"  # the current_user / current_admin_user fixtures' password
+SERVICE_KEY = "k" * 64
 
 
 async def _issue_token(
     session: AsyncSession,
     owner_id: int,
     *,
+    usage: ApiTokenUsage = ApiTokenUsage.API,
     expires_at: datetime | None = None,
     last_used_at: datetime | None = None,
 ) -> tuple[ApiToken, str]:
@@ -47,7 +51,11 @@ async def _issue_token(
     """
     plain = generate_api_token()
     token = await ApiTokenRepository(session).create(
-        owner_id=owner_id, name="Agent", token_hash=hash_token(plain), expires_at=expires_at
+        owner_id=owner_id,
+        name="Agent",
+        usage=usage,
+        token_hash=hash_token(plain),
+        expires_at=expires_at,
     )
     if last_used_at is not None:
         token.last_used_at = last_used_at
@@ -57,6 +65,18 @@ async def _issue_token(
 
 def _bearer(plain: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {plain}"}
+
+
+def _through_mcp(plain: str, service_key: str = SERVICE_KEY) -> dict[str, str]:
+    """What the remote MCP server sends: the agent's token plus its own service key."""
+    return {**_bearer(plain), MCP_SERVICE_KEY_HEADER: service_key}
+
+
+@pytest.fixture
+def service_key(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Configure the API with a known service key, whatever the developer's `.env` holds."""
+    monkeypatch.setattr(settings, "MCP_SERVICE_KEY", SecretStr(SERVICE_KEY))
+    return SERVICE_KEY
 
 
 def _as_utc(value: str) -> datetime:
@@ -111,6 +131,40 @@ async def test_create_expiry(
     else:
         delta = _as_utc(expires_at) - datetime.now(UTC)
         assert timedelta(days=expected_days - 1) < delta <= timedelta(days=expected_days)
+
+
+async def test_create_defaults_to_the_api_usage(authenticated_client: AsyncClient) -> None:
+    """A client unaware of usages keeps getting what it always got: a token for the API."""
+    response = await authenticated_client.post(
+        TOKENS_PATH, json={"name": "Script", "current_password": PASSWORD}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["usage"] == "api"
+
+
+async def test_create_with_the_mcp_usage_shows_it_in_the_list(
+    authenticated_client: AsyncClient,
+) -> None:
+    response = await authenticated_client.post(
+        TOKENS_PATH, json={"name": "Remote agent", "current_password": PASSWORD, "usage": "mcp"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["usage"] == "mcp"
+    listed = (await authenticated_client.get(TOKENS_PATH)).json()
+    assert [token["usage"] for token in listed] == ["mcp"]
+
+
+async def test_create_with_an_unknown_usage_returns_422(
+    authenticated_client: AsyncClient, db_session: AsyncSession
+) -> None:
+    response = await authenticated_client.post(
+        TOKENS_PATH, json={"name": "Agent", "current_password": PASSWORD, "usage": "admin"}
+    )
+
+    assert response.status_code == 422
+    assert (await db_session.execute(select(ApiToken))).first() is None
 
 
 async def test_create_defaults_to_90_days(authenticated_client: AsyncClient) -> None:
@@ -450,6 +504,163 @@ async def test_last_used_at_is_refreshed_after_an_hour(
     after = await _last_used_at(db_session, token.id)
     assert before is not None and after is not None
     assert after > before
+
+
+# --- token usage and the MCP service key ---
+
+
+async def test_mcp_token_with_the_service_key_authenticates_its_owner(
+    client: AsyncClient, db_session: AsyncSession, current_user: User, service_key: str
+) -> None:
+    _, plain = await _issue_token(db_session, current_user.id, usage=ApiTokenUsage.MCP)
+
+    response = await client.get(ME_PATH, headers=_through_mcp(plain, service_key))
+
+    assert response.status_code == 200
+    assert response.json()["id"] == current_user.id
+
+
+@pytest.mark.usefixtures("service_key")
+async def test_mcp_token_without_the_service_key_returns_401(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """The point of the usage: a stolen `mcp` token is useless straight against the API."""
+    _, plain = await _issue_token(db_session, current_user.id, usage=ApiTokenUsage.MCP)
+
+    response = await client.get(ME_PATH, headers=_bearer(plain))
+
+    assert response.status_code == 401
+
+
+async def test_api_token_with_the_service_key_returns_401(
+    client: AsyncClient, db_session: AsyncSession, current_user: User, service_key: str
+) -> None:
+    """The rule goes both ways: the remote MCP server only relays tokens issued for it."""
+    _, plain = await _issue_token(db_session, current_user.id)
+
+    response = await client.get(ME_PATH, headers=_through_mcp(plain, service_key))
+
+    assert response.status_code == 401
+
+
+@pytest.mark.usefixtures("service_key")
+@pytest.mark.parametrize("sent_key", ["", "wrong-" + "k" * 58, "k" * 63])
+@pytest.mark.parametrize("usage", list(ApiTokenUsage))
+async def test_a_wrong_service_key_returns_401(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    sent_key: str,
+    usage: ApiTokenUsage,
+) -> None:
+    """A header that is present but wrong, empty included, never falls back to the `api`
+    usage: whichever usage the token has, it is refused."""
+    _, plain = await _issue_token(db_session, current_user.id, usage=usage)
+
+    response = await client.get(ME_PATH, headers=_through_mcp(plain, sent_key))
+
+    assert response.status_code == 401
+
+
+@pytest.mark.usefixtures("service_key")
+async def test_a_non_ascii_service_key_returns_401_not_500(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """The header value is the client's choice; comparing it must not crash on it."""
+    _, plain = await _issue_token(db_session, current_user.id, usage=ApiTokenUsage.MCP)
+    # Raw bytes: httpx only encodes str header values as ASCII.
+    headers = [
+        (b"Authorization", f"Bearer {plain}".encode()),
+        (MCP_SERVICE_KEY_HEADER.encode(), "clé".encode("latin-1")),
+    ]
+
+    response = await client.get(ME_PATH, headers=headers)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("usage", list(ApiTokenUsage))
+async def test_any_service_key_returns_401_when_none_is_configured(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+    usage: ApiTokenUsage,
+) -> None:
+    """Without a configured key there is no remote MCP server: nothing can pass for it."""
+    monkeypatch.setattr(settings, "MCP_SERVICE_KEY", None)
+    _, plain = await _issue_token(db_session, current_user.id, usage=usage)
+
+    response = await client.get(ME_PATH, headers=_through_mcp(plain))
+
+    assert response.status_code == 401
+
+
+@pytest.mark.usefixtures("service_key")
+async def test_a_usage_mismatch_looks_like_an_unknown_token(
+    client: AsyncClient, db_session: AsyncSession, current_user: User
+) -> None:
+    """Same 401 and same message: the answer must not tell an attacker the token exists."""
+    _, plain = await _issue_token(db_session, current_user.id, usage=ApiTokenUsage.MCP)
+
+    mismatch = await client.get(ME_PATH, headers=_bearer(plain))
+    unknown = await client.get(ME_PATH, headers=_bearer(generate_api_token()))
+
+    assert mismatch.status_code == unknown.status_code == 401
+    assert mismatch.json() == unknown.json()
+
+
+async def test_mcp_token_with_the_service_key_is_counted_per_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    redis_client: fakeredis.FakeAsyncRedis,
+    service_key: str,
+) -> None:
+    """The middlewares apply the same rule: every remote agent arrives from the MCP server's
+    IP, so a usable `mcp` token must count against its owner, not that shared IP."""
+    _, plain = await _issue_token(db_session, current_user.id, usage=ApiTokenUsage.MCP)
+
+    await client.get(ME_PATH, headers=_through_mcp(plain, service_key))
+
+    assert await redis_client.get(f"rate_limit:general:user:{current_user.id}") == "1"
+    assert await redis_client.get(IP_KEY) is None
+
+
+@pytest.mark.usefixtures("service_key")
+async def test_mcp_token_without_the_service_key_is_counted_per_ip(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    redis_client: fakeredis.FakeAsyncRedis,
+) -> None:
+    """Refused by the route, so it must not consume its owner's quota either."""
+    _, plain = await _issue_token(db_session, current_user.id, usage=ApiTokenUsage.MCP)
+
+    await client.get(ME_PATH, headers=_bearer(plain))
+
+    assert await redis_client.get(IP_KEY) == "1"
+    assert await redis_client.get(f"rate_limit:general:user:{current_user.id}") is None
+
+
+async def test_a_wrong_service_key_is_counted_per_ip_without_a_lookup(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    current_user: User,
+    redis_client: fakeredis.FakeAsyncRedis,
+    monkeypatch: pytest.MonkeyPatch,
+    service_key: str,
+) -> None:
+    """The key is checked before the database: a wrong one costs no query, and the request
+    is counted by IP like any unusable token."""
+    _, plain = await _issue_token(db_session, current_user.id, usage=ApiTokenUsage.MCP)
+    lookup = AsyncMock(return_value=current_user.id)
+    monkeypatch.setattr("src.core.middlewares.ApiTokenRepository.get_usable_owner_id", lookup)
+
+    await client.get(ME_PATH, headers=_through_mcp(plain, "wrong-" + service_key))
+
+    lookup.assert_not_awaited()
+    assert await redis_client.get(IP_KEY) == "1"
 
 
 # --- rate limiting and idempotency with an API token ---

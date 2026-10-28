@@ -20,6 +20,7 @@ import src.core.middlewares as middlewares
 import src.core.redis as core_redis
 from src.core.database import Base
 from src.core.security import generate_api_token, hash_password, hash_token
+from src.modules.api_tokens.models import ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.users.repository import UserRepository
 from src.modules.users.schemas import UserCreate
@@ -85,7 +86,11 @@ async def eval_app():
 
             plain_token = generate_api_token()
             await ApiTokenRepository(session).create(
-                owner_id=user.id, name="Agent", token_hash=hash_token(plain_token), expires_at=None
+                owner_id=user.id,
+                usage=ApiTokenUsage.API,
+                name="Agent",
+                token_hash=hash_token(plain_token),
+                expires_at=None,
             )
 
             await session.commit()

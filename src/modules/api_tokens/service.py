@@ -50,6 +50,7 @@ class ApiTokenService:
         new_api_token = await self.repository.create(
             owner_id=current_user.id,
             name=data.name,
+            usage=data.usage,
             token_hash=hash_token(plain_token),
             expires_at=expires_at,
         )

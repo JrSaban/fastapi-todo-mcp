@@ -1,4 +1,4 @@
-from pydantic import computed_field, field_validator
+from pydantic import SecretStr, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,9 @@ class Settings(BaseSettings):
 
     # Trusted proxies
     TRUSTED_PROXIES: list[str] = []
+
+    # MCP server
+    MCP_SERVICE_KEY: SecretStr | None = None
 
     # JWT
     JWT_SECRET_KEY: str
@@ -74,6 +77,18 @@ class Settings(BaseSettings):
                 "JWT_SECRET_KEY must be at least 32 bytes and must not be the "
                 "'change-me' placeholder"
             )
+        return v
+
+    @field_validator("MCP_SERVICE_KEY")
+    @classmethod
+    def validate_mcp_service_key(cls, v: SecretStr | None) -> SecretStr | None:
+        if v is not None:
+            value = v.get_secret_value()
+            if value.startswith("change-me") or len(value.encode()) < 32:
+                raise ValueError(
+                    "MCP_SERVICE_KEY must be at least 32 bytes and must not be the "
+                    "'change-me' placeholder"
+                )
         return v
 
     # URL de connexion directe (optionnelle, surchargée par Docker Compose)

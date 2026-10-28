@@ -11,7 +11,7 @@ from sqlalchemy import CursorResult, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.repository import BaseRepository
-from src.modules.api_tokens.models import ApiToken
+from src.modules.api_tokens.models import ApiToken, ApiTokenUsage
 from src.modules.users.models import User
 
 
@@ -35,21 +35,27 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_active_by_hash(self, token_hash: str, now: datetime) -> ApiToken | None:
+    async def get_active_by_hash(
+        self, usage: ApiTokenUsage, token_hash: str, now: datetime
+    ) -> ApiToken | None:
         """Get active token by its hash."""
         query = select(ApiToken).where(
+            ApiToken.usage == usage,
             ApiToken.token_hash == token_hash,
             or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_usable_owner_id(self, token_hash: str, now: datetime) -> int | None:
+    async def get_usable_owner_id(
+        self, usage: ApiTokenUsage, token_hash: str, now: datetime
+    ) -> int | None:
         """Get owner ID for a usable token hash."""
         query = (
             select(ApiToken.owner_id)
             .join(User, User.id == ApiToken.owner_id)
             .where(
+                ApiToken.usage == usage,
                 ApiToken.token_hash == token_hash,
                 or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
                 User.is_active.is_(True),
@@ -74,12 +80,19 @@ class ApiTokenRepository(BaseRepository[ApiToken]):
         await self.session.execute(query)
 
     async def create(
-        self, *, owner_id: int, name: str, token_hash: str, expires_at: datetime | None
+        self,
+        *,
+        owner_id: int,
+        name: str,
+        usage: ApiTokenUsage,
+        token_hash: str,
+        expires_at: datetime | None,
     ) -> ApiToken:
         """Create and persist a new API token."""
         token = ApiToken(
             owner_id=owner_id,
             name=name,
+            usage=usage,
             token_hash=token_hash,
             expires_at=expires_at,
         )

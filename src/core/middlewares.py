@@ -33,7 +33,14 @@ from src.core.idempotency import (
 )
 from src.core.rate_limit import increment_rate_limit, seconds_until_reset
 from src.core.redis import get_redis_client
-from src.core.security import API_TOKEN_PREFIX, decode_access_token, hash_token
+from src.core.security import (
+    API_TOKEN_PREFIX,
+    MCP_SERVICE_KEY_HEADER,
+    decode_access_token,
+    expected_api_token_usage,
+    hash_token,
+)
+from src.modules.api_tokens.models import ApiTokenUsage
 from src.modules.api_tokens.repository import ApiTokenRepository
 from src.modules.audit.context import current_actor
 
@@ -75,11 +82,12 @@ def _user_id_from_access_token(token: str) -> str | None:
     return None
 
 
-async def _user_id_from_api_token(token: str) -> str | None:
+async def _user_id_from_api_token(usage: ApiTokenUsage, token: str) -> str | None:
     """Extract user ID from API token."""
     try:
         async with async_session_factory() as session:
             owner_id = await ApiTokenRepository(session).get_usable_owner_id(
+                usage=usage,
                 token_hash=hash_token(token),
                 now=datetime.now(UTC),
             )
@@ -103,7 +111,11 @@ async def _request_user_id(request: Request) -> str | None:
 
     if token.startswith(API_TOKEN_PREFIX):
         request.state.auth_method = "api_token"
-        user_id = await _user_id_from_api_token(token)
+        mcp_key_header = request.headers.get(MCP_SERVICE_KEY_HEADER)
+        if (usage := expected_api_token_usage(mcp_key_header)) is None:
+            user_id = None
+        else:
+            user_id = await _user_id_from_api_token(usage, token)
     else:
         request.state.auth_method = "access_token"
         user_id = _user_id_from_access_token(token)
