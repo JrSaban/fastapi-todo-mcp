@@ -27,8 +27,9 @@ class Settings(BaseSettings):
     MCP_SERVICE_KEY: SecretStr | None = None
     MCP_HOST: str = "127.0.0.1"
     MCP_PORT: int = 8001
-    MCP_ALLOWED_HOSTS: list[str] = []
-    MCP_ALLOWED_ORIGINS: list[str] = []
+    MCP_ALLOWED_HOSTS: list[str] = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    MCP_ALLOWED_ORIGINS: list[str] = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+    MCP_TRUSTED_PROXIES: list[str] = []
 
     @field_validator("TODO_API_TOKEN")
     @classmethod
