@@ -22,7 +22,8 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 
 ## Features
 
-- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete, delete and restore todos, and list and read categories, through 14 tools. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client
+- **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete, delete and restore todos, and list and read categories, through 14 tools. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client. It runs locally for one user, or as a remote HTTP server shared by many agents, each with its own token
+- **Remote MCP server, designed from a security review** — tokens are issued for one usage: an `mcp` token only works through the remote server, which proves itself to the API with a service key, so a stolen one is useless against the API directly. Each request carries its own user's token, never shared inside the server; requests without a token are refused before the MCP protocol, the server keeps no session, rejects unknown hosts (DNS rebinding) and passes each agent's IP to the API's rate limit
 - **Human approval for an agent's bulk actions** — an agent deletes one todo at a time directly, but deleting all completed todos at once only creates a request, which the user approves from a login session; the agent can follow it, or cancel it when the user asks, but never approve it. One request per action can be pending at a time, it expires after 7 days, and requests are kept as history for 3 months after that. The same action from a login session runs immediately
 - **Evals for the MCP tools** — a command runs a real Claude model as an agent through ten scenarios, five times each, and prints a pass rate per scenario: does it pick the right tool and arguments, does it say a bulk deletion awaits approval instead of working around it, does it refuse instructions hidden in a todo title or a category name
 - **Authentication** — registration, login, short-lived JWT access tokens, and opaque refresh tokens that are rotated on every use and revoked on logout
@@ -103,6 +104,14 @@ The repository ships a `.mcp.json`, so Claude Code offers the `todo-api` server 
 2. Copy `.env.mcp.example` to `.env.mcp` (gitignored) and put the token in `TODO_API_TOKEN`.
 3. With the API running, open Claude Code in the project and approve the server; `/mcp` lists its tools.
 
+**Remote mode.** The same server can run over HTTP, shared by several agents, each sending its own token:
+
+1. Generate a service key (`openssl rand -hex 32`) and put it in `.env` as `MCP_SERVICE_KEY`. The API and the MCP server both read it there.
+2. Start the stack with the MCP server: `docker compose --profile mcp up -d`. It listens on `http://localhost:8001/mcp`.
+3. Each user creates a token with `"usage": "mcp"` (`POST /api/v1/api-tokens`), and the agent sends it as `Authorization: Bearer tda_...`. An `mcp` token works only through this server, a default `api` token only without it.
+
+Before exposing it beyond your machine, put it behind an HTTPS reverse proxy and set `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` and `MCP_TRUSTED_PROXIES` for it. The design and its threats are in [`docs/remote-mcp-security-review.md`](docs/remote-mcp-security-review.md).
+
 ## Running the tests
 
 No Postgres or Redis needed — the suite runs on in-memory SQLite and `fakeredis`.
@@ -182,7 +191,8 @@ src/
 │   ├── maintenance/  # background jobs spanning several modules (weekly pruning)
 │   └── todos_categories/  # many-to-many association table
 └── main.py          # app wiring: routers, middleware order, exception handler
-mcp_server/          # MCP server for AI agents: an HTTP client of the API, never imports src/
+mcp_server/          # MCP server for AI agents, stdio or HTTP: an HTTP client of the API, never imports src/
+docs/                # design documents (the remote MCP server's security review)
 evals/               # evals: a real Claude model uses the MCP tools, scenarios check what it did
 alembic/versions/    # migrations
 tests/               # integration tests + tests/unit/ for isolated service tests

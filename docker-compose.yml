@@ -13,6 +13,8 @@ x-app: &app
     # En environnement Docker, l'hôte de la BDD est le nom du service ("db") et REDIS
     - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-todo_db}
     - REDIS_URL=redis://redis:6379/0
+    # The MCP container's fixed address (services.mcp): the only proxy the API trusts here
+    - TRUSTED_PROXIES=["172.30.0.10"]
   depends_on:
     db:
       condition: service_healthy
@@ -44,6 +46,24 @@ services:
       timeout: 5s
       retries: 5
 
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: todo_mcp
+    profiles: [ "mcp" ]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      TODO_API_URL: http://api:8000/api/v1
+      MCP_SERVICE_KEY: ${MCP_SERVICE_KEY:-}
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+    depends_on:
+      - api
+
   redis:
     image: redis:8-alpine
     container_name: todo_redis
@@ -74,3 +94,10 @@ volumes:
     name: todo_postgres_data
   redis_data:
     name: todo_redis_data
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          ip_range: 172.30.0.128/25
