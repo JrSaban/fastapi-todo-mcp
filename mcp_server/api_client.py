@@ -39,6 +39,8 @@ class TodoApiClient:
         if settings.MCP_SERVICE_KEY is not None:
             headers[MCP_SERVICE_KEY_HEADER] = settings.MCP_SERVICE_KEY.get_secret_value()
 
+        # Shared by every caller in http mode, cookie jar included: this relies on the API
+        # never setting a cookie, or one user's would go out with everyone else's requests.
         self._client = httpx.AsyncClient(
             base_url=settings.TODO_API_URL,
             headers=headers,
