@@ -7,6 +7,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_server.config import Settings
 
+MCP_SERVICE_KEY_HEADER = "X-MCP-Service-Key" # mirrors src.core.security.MCP_SERVICE_KEY_HEADER, which mcp_server can't import
+
 
 def _error_detail(response: httpx.Response) -> str:
     """Readable message from an API error response."""
@@ -26,9 +28,19 @@ class TodoApiClient:
     def __init__(
         self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
+        self._fallback_token = (
+            settings.TODO_API_TOKEN.get_secret_value()
+            if settings.TODO_API_TOKEN is not None
+            else None
+        )
+        headers = {}
+
+        if settings.MCP_SERVICE_KEY is not None:
+            headers[MCP_SERVICE_KEY_HEADER] = settings.MCP_SERVICE_KEY.get_secret_value()
+
         self._client = httpx.AsyncClient(
             base_url=settings.TODO_API_URL,
-            headers={"Authorization": f"Bearer {settings.TODO_API_TOKEN.get_secret_value()}"},
+            headers=headers,
             transport=transport,
             timeout=10,
         )
@@ -38,12 +50,22 @@ class TodoApiClient:
         method: str,
         path: str,
         *,
+        token: str | None = None,
+        client_ip: str | None = None,
         params: dict | None = None,
         json: dict | None = None,
         idempotency_key: str | None = None,
     ) -> Any:
         """Send a request to the Todo API and return the response."""
         headers = {}
+        token = token or self._fallback_token
+        if token is None:
+            raise ToolError("No API token for this request")
+        headers["Authorization"] = f"Bearer {token}"
+
+        if client_ip is not None:
+            headers["X-Forwarded-For"] = client_ip
+
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
 
