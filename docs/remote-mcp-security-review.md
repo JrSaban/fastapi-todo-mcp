@@ -1,6 +1,7 @@
 # Remote MCP server — security review
 
-Status: settled on 2026-10-27, before any code. It covers the ROADMAP item "Remote MCP server".
+Status: settled on 2026-10-27, before any code, and implemented on 2026-10-28 (see `CLAUDE.md`,
+"API tokens" and "MCP server"). The HTTP transport is stateless, so T5 has no session to protect.
 
 ## Scope
 
