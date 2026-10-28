@@ -7,7 +7,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_server.config import Settings
 
-MCP_SERVICE_KEY_HEADER = "X-MCP-Service-Key" # mirrors src.core.security.MCP_SERVICE_KEY_HEADER, which mcp_server can't import
+# mirrors src.core.security.MCP_SERVICE_KEY_HEADER, which mcp_server can't import
+MCP_SERVICE_KEY_HEADER = "X-MCP-Service-Key"
 
 
 def _error_detail(response: httpx.Response) -> str:
