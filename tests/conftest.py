@@ -71,7 +71,7 @@ async def setup_test_database() -> AsyncGenerator[None, None]:
     - Avant le premier test : crée toutes les tables, une seule fois par processus.
     - Après chaque test : vide toutes les tables pour garantir une isolation totale. Les
       vider coûte bien moins cher que les recréer, et les ids repartent quand même de 1 :
-      sans AUTOINCREMENT, SQLite réutilise le plus petit id libre.
+      sans AUTOINCREMENT, SQLite prend max(id) + 1, donc 1 sur une table vide.
     Équivalent de RefreshDatabase dans Laravel.
     """
     global _schema_created
