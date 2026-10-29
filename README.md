@@ -114,10 +114,11 @@ Before exposing it beyond your machine, put it behind an HTTPS reverse proxy and
 
 ## Running the tests
 
-No Postgres or Redis needed — the suite runs on in-memory SQLite and `fakeredis`.
+No Postgres or Redis needed — the suite runs on in-memory SQLite and `fakeredis`, on three parallel workers.
 
 ```bash
 uv run pytest              # full suite
+uv run pytest -n 0 tests/test_todos.py::test_name   # one test, without parallel workers
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```
