@@ -1,6 +1,6 @@
 # Todo API
 
-[![CI](https://github.com/JrSaban/python-agentic-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/JrSaban/python-agentic-lab/actions/workflows/ci.yml)
+[![CI](https://github.com/JrSaban/fastapi-todo-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JrSaban/fastapi-todo-mcp/actions/workflows/ci.yml)
 
 A REST API for managing todos and categories, built with **FastAPI** and **Clean Architecture** in Python, and the lab for two learning goals. The first is moving from PHP/Laravel to Python, FastAPI and SQLAlchemy: I write the production code, from JWT authentication with rotating refresh tokens to a generic repository layer on Python 3.12's native generics. The second is learning to build software *with* AI agents, and *for* them. Claude Code explains, reviews my code and writes the tests and the documentation, while the API is exposed to agents through an MCP server, with personal API tokens, human approval of bulk actions, an audit log, and evals that measure how a real Claude model uses it.
 
@@ -62,8 +62,8 @@ A few decisions worth a second look if you're skimming the code:
 ## Getting started
 
 ```bash
-git clone https://github.com/JrSaban/python-agentic-lab.git
-cd python-agentic-lab
+git clone https://github.com/JrSaban/fastapi-todo-mcp.git
+cd fastapi-todo-mcp
 cp .env.example .env
 ```
 

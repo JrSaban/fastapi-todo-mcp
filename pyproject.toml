@@ -1,5 +1,5 @@
 [project]
-name = "python-agentic-lab"
+name = "fastapi-todo-mcp"
 version = "0.1.0"
 description = "FastAPI To-Do List API with Clean Architecture"
 readme = "README.md"

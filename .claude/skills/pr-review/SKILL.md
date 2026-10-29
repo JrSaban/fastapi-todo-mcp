@@ -2,7 +2,7 @@
 name: pr-review
 description: Review the current branch against its parent branch, or the whole task at its last sub-task, then apply approved fixes.
 argument-hint: "[final] [no-tests]"
-allowed-tools: Bash(git fetch -q --prune origin), Bash(git branch --show-current), Bash(git status --short), Bash(git log:*), Bash(git diff:*), Bash(git merge-base:*), Bash(git for-each-ref:*), Bash(bash .claude/skills/pr-review/find-parent.sh), Bash(git ls-remote --heads origin:*), Bash(curl -s "https://api.github.com/repos/JrSaban/python-agentic-lab/pulls?state=open"), Bash(uv run ruff check .), Bash(uv run ruff format --check .), Bash(uv run alembic heads), Bash(uv run pytest:*)
+allowed-tools: Bash(git fetch -q --prune origin), Bash(git branch --show-current), Bash(git status --short), Bash(git log:*), Bash(git diff:*), Bash(git merge-base:*), Bash(git for-each-ref:*), Bash(bash .claude/skills/pr-review/find-parent.sh), Bash(git ls-remote --heads origin:*), Bash(curl -s "https://api.github.com/repos/JrSaban/fastapi-todo-mcp/pulls?state=open"), Bash(uv run ruff check .), Bash(uv run ruff format --check .), Bash(uv run alembic heads), Bash(uv run pytest:*)
 disable-model-invocation: true
 ---
 
@@ -36,7 +36,7 @@ scripts next to this file are tested; use them rather than redoing their work by
      (`origin/main` for `main`).
    If it helps to understand a parent branch's intent, you may read the open PRs' descriptions
    (the `body` field of
-   `curl -s "https://api.github.com/repos/JrSaban/python-agentic-lab/pulls?state=open"`; `gh` is
+   `curl -s "https://api.github.com/repos/JrSaban/fastapi-todo-mcp/pulls?state=open"`; `gh` is
    not installed) and pass the relevant ones to the subagent as context. A description that no
    longer matches the code is not a finding.
 3. Collect:

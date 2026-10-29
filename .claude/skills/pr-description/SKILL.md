@@ -1,7 +1,7 @@
 ---
 name: pr-description
 description: Write the pull request description of the current branch, following the PR template.
-allowed-tools: Bash(git fetch -q --prune origin), Bash(git branch --show-current), Bash(git status --short), Bash(git log:*), Bash(git diff:*), Bash(git merge-base:*), Bash(bash .claude/skills/pr-review/find-parent.sh), Bash(curl -s "https://api.github.com/repos/JrSaban/python-agentic-lab/pulls?state=open")
+allowed-tools: Bash(git fetch -q --prune origin), Bash(git branch --show-current), Bash(git status --short), Bash(git log:*), Bash(git diff:*), Bash(git merge-base:*), Bash(bash .claude/skills/pr-review/find-parent.sh), Bash(curl -s "https://api.github.com/repos/JrSaban/fastapi-todo-mcp/pulls?state=open")
 disable-model-invocation: true
 ---
 
@@ -20,7 +20,7 @@ disable-model-invocation: true
    are one of this branch's changes, and a fix made here for a parent branch's code is described
    as such.
    You may read the parent PRs' descriptions (the `body` field of
-   `curl -s "https://api.github.com/repos/JrSaban/python-agentic-lab/pulls?state=open"`) to stay
+   `curl -s "https://api.github.com/repos/JrSaban/fastapi-todo-mcp/pulls?state=open"`) to stay
    consistent with them and avoid repeating them. Don't suggest fixing them.
 3. Write the description in **English**, in a single Markdown code block I can paste. The
    guidance below covers the template's sections as of writing; if the template has changed,
