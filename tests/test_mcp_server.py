@@ -28,8 +28,8 @@ from src.modules.todos.schemas import TodoCreate
 from src.modules.users.models import User
 
 # Tools call the real API through `client`'s overrides (test database, fake Redis). Every request
-# carries an API token, so — see CLAUDE.md, Tests — data must be committed before a call, and a
-# call never relies on what an earlier call wrote.
+# carries an API token, so — see CLAUDE.md, Tests — data set up by the test must be committed
+# before a call. What a call writes is committed by its own request.
 #
 # Each test opens its own `Client` with `async with`: an MCP client runs a task group, which must
 # be exited in the task that entered it, and pytest-asyncio sets up and tears down an async
@@ -434,9 +434,7 @@ async def test_list_approval_requests_filters_expired(
 async def test_reject_approval_request(
     server: MCPServer, db_session: AsyncSession, current_user: User
 ) -> None:
-    """The user cancels through the agent: the request is closed, nothing is deleted.
-    Set up through the repository: a request written by an earlier tool call is lost (see the
-    note at the top of this file)."""
+    """The user cancels through the agent: the request is closed, nothing is deleted."""
     todos = TodoRepository(db_session)
     done = await todos.create(current_user.id, TodoCreate(title="Done"), [])
     done.is_completed = True

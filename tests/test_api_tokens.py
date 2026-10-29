@@ -734,8 +734,6 @@ async def test_idempotency_works_with_an_api_token(
     first = await client.post(TODOS_PATH, json={"title": "From an agent"}, headers=headers)
     second = await client.post(TODOS_PATH, json={"title": "From an agent"}, headers=headers)
 
-    # Proven by the replay itself rather than a row count: in tests the request session is
-    # never committed, and the next API-token lookup rolls back the shared connection.
     assert first.status_code == 201
     assert second.headers["Idempotent-Replayed"] == "true"
     assert second.json() == first.json()

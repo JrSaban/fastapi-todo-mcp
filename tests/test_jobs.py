@@ -186,7 +186,6 @@ async def test_user_lists_only_their_own_jobs(
     own = await _create_job(db_session, current_user.id)
     await _create_job(db_session, other_user.id)
     await _create_job(db_session, None)
-    await db_session.commit()
 
     response = await authenticated_client.get(JOBS_PATH)
 
@@ -201,7 +200,6 @@ async def test_admin_lists_every_job_and_can_filter(
     """An admin sees every job, scheduled runs included, and filters by status."""
     await _create_job(db_session, other_user.id, status=JobStatus.SUCCEEDED)
     failed = await _create_job(db_session, None, status=JobStatus.FAILED)
-    await db_session.commit()
 
     everything = await authenticated_admin.get(JOBS_PATH)
     assert everything.json()["total"] == 2
@@ -218,7 +216,6 @@ async def test_someone_elses_job_returns_404(
 ) -> None:
     """Like todos: 404, never 403, so the id's existence isn't revealed."""
     job = await _create_job(db_session, other_user.id)
-    await db_session.commit()
 
     response = await authenticated_client.get(f"{JOBS_PATH}/{job.task_id}")
 
@@ -230,7 +227,6 @@ async def test_admin_reads_a_scheduled_run(
 ) -> None:
     """The Monday-morning case: an admin can read a run that has no owner."""
     job = await _create_job(db_session, None, status=JobStatus.SUCCEEDED)
-    await db_session.commit()
 
     response = await authenticated_admin.get(f"{JOBS_PATH}/{job.task_id}")
 
