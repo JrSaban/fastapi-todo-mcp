@@ -117,13 +117,15 @@ async def client(
 
     async def override_get_db_session() -> AsyncGenerator[AsyncSession, None]:
         savepoint = await db_session.begin_nested()
+
         try:
             yield db_session
-            await savepoint.commit()
-            await db_session.commit()
         except Exception:
             await savepoint.rollback()
             raise
+
+        await savepoint.commit()
+        await db_session.commit()
 
     async def override_get_redis_client() -> AsyncGenerator[fakeredis.FakeAsyncRedis, None]:
         yield redis_client
