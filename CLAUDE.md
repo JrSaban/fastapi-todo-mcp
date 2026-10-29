@@ -31,9 +31,9 @@ uv run --env-file .env.mcp python -m mcp_server   # MCP server over stdio — no
 docker compose --profile mcp up -d                # + the remote MCP server over HTTP on :8001 (needs MCP_SERVICE_KEY in .env)
 uv run --env-file .env.evals python -m evals      # MCP evals: calls the paid Anthropic API, never in CI
 
-uv run pytest                                  # full suite
-uv run pytest tests/unit/                      # unit tests only
-uv run pytest tests/test_todos.py::test_name   # one test
+uv run pytest                                       # full suite, on 3 workers (pytest-xdist)
+uv run pytest tests/unit/                           # unit tests only
+uv run pytest -n 0 tests/test_todos.py::test_name   # one test, without starting workers
 
 uv run ruff check --fix . && uv run ruff format .
 
@@ -59,19 +59,20 @@ The MCP server's dependencies live in a separate `mcp` dependency group, install
 
 ## Tests
 
-Integration tests (`tests/test_*.py`) go through the full FastAPI stack with the `client` fixture, which overrides two dependencies: `get_db_session` (in-memory SQLite via `aiosqlite`, tables created and dropped around every test) and `get_redis_client` (a per-test `fakeredis.FakeAsyncRedis`, exposed as the `redis_client` fixture so a test can inspect or seed keys directly). The rate-limit and idempotency middlewares call `get_redis_client()` themselves, outside dependency injection, so `dependency_overrides` doesn't reach them: the `client` fixture also monkeypatches `src.core.redis.redis_client` with the same fake. Every test starts with an empty fake, hence fresh rate-limit counters and idempotency keys. Both middlewares resolve the user themselves (JWT signature or API-token lookup), not through `get_current_user`: a test that needs them to see a user sends a real `Authorization: Bearer` header (`create_access_token`, or an API token), even with `authenticated_client`. Unit tests (`tests/unit/`) isolate one `*Service` by passing `AsyncMock` for its repositories and its Redis client; the module-level functions of `src/core/security.py` are called directly by services rather than injected, so they are patched at the import site: `@patch("src.modules.<module>.service.<function_name>")`.
+Integration tests (`tests/test_*.py`) go through the full FastAPI stack with the `client` fixture, which overrides two dependencies: `get_db_session` (in-memory SQLite via `aiosqlite`, tables created once per worker and emptied after every test) and `get_redis_client` (a per-test `fakeredis.FakeAsyncRedis`, exposed as the `redis_client` fixture so a test can inspect or seed keys directly). The rate-limit and idempotency middlewares call `get_redis_client()` themselves, outside dependency injection, so `dependency_overrides` doesn't reach them: the `client` fixture also monkeypatches `src.core.redis.redis_client` with the same fake. Every test starts with an empty fake, hence fresh rate-limit counters and idempotency keys. Both middlewares resolve the user themselves (JWT signature or API-token lookup), not through `get_current_user`: a test that needs them to see a user sends a real `Authorization: Bearer` header (`create_access_token`, or an API token), even with `authenticated_client`. Unit tests (`tests/unit/`) isolate one `*Service` by passing `AsyncMock` for its repositories and its Redis client; the module-level functions of `src/core/security.py` are called directly by services rather than injected, so they are patched at the import site: `@patch("src.modules.<module>.service.<function_name>")`.
 
 Which kind to write:
 
-- Real SQL logic (filters, joins) → integration test. Mocking the repository proves nothing about the query.
 - Service branching/orchestration, and failure modes that `fakeredis` can't produce (`RedisError`, corrupted cache payload) → unit test with `side_effect`.
 - Cache behaviour (stored, served, invalidated) → integration test with `redis_client`. The "served from cache" tests prove a hit by inserting a row through the repository directly, which bypasses the service's invalidation, then asserting the API still returns the old result.
+
+The suite runs on three `pytest-xdist` workers (`addopts = "-n 3"` in `pyproject.toml`): measured on 8 cores, 3 and 4 were the fastest, and more were slower, since every worker imports the whole app before its first test. Each worker has its own in-memory database. `setup_test_database` creates the schema on a worker's first test and then only empties the tables (`table.delete()`, children before parents through `reversed(sorted_tables)`): recreating it cost more than half the suite's time.
 
 `conftest.py` force-sets `JWT_SECRET_KEY` with `os.environ[...]` but `DEBUG` with `os.environ.setdefault` right above it, both before any `src.*` import. The difference is deliberate, not an inconsistency to fix: tests must never depend on the secret in a developer's `.env`, while `DEBUG` may be turned on from the shell to see logs. It also force-sets `APP_ENV=test`, which makes `src/core/broker.py` build an in-memory broker (see "Background jobs"), and swaps `security._password_hasher` for an Argon2 hasher at minimal cost — the defaults halved the suite's speed. `_DUMMY_PASSWORD_HASH` is computed at import with the real parameters, so an unknown-email login keeps its cost.
 
 The SQLite test engine runs `PRAGMA foreign_keys=ON` on every connection, so tests enforce FKs and `ON DELETE CASCADE` like Postgres. A test row must point at rows that really exist — a hardcoded `created_by_id=1` with no such user now fails.
 
-All test sessions share **one** SQLite connection (`StaticPool`). The `get_db_session` override commits like the real one, inside a savepoint it opens for each request: a failed request rolls back to that savepoint, so it undoes only its own writes and leaves the test's setup in place, as in production, and expires only the objects it touched. A test that reads an object the failed request changed reads it first — `current_user` is the very object the route gets, through `_as_session_user`. Concurrent requests can't share that session: a parallel test replaces every service its route takes (`SlowFailingService`).
+All test sessions share **one** SQLite connection (aiosqlite's default pool for `:memory:`, `StaticPool`, never passed in `conftest.py`). The `get_db_session` override commits like the real one, inside a savepoint it opens for each request: a failed request rolls back to that savepoint, so it undoes only its own writes and leaves the test's setup in place, as in production, and expires only the objects it touched. A test that reads an object the failed request changed reads it first — `current_user` is the very object the route gets, through `_as_session_user`. Concurrent requests can't share that session: a parallel test replaces every service its route takes (`SlowFailingService`).
 
 One case still needs a manual commit: a request carrying an API token makes the middlewares open their own session to look the token up, and closing it rolls back the shared connection before the route runs. A test must therefore **commit** its setup data before such a request. Tests also commit before running a job, which in production sees committed data only, even though the shared connection would let it see more.
 

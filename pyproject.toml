@@ -27,6 +27,7 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-xdist>=3.8.0",
     "rich>=15.0.0",
     "ruff>=0.16.4",
 ]
@@ -44,6 +45,7 @@ mcp = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-n 3"
 
 [tool.ruff]
 line-length = 100

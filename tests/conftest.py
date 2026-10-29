@@ -61,22 +61,31 @@ test_session_factory = async_sessionmaker(
     expire_on_commit=False,
 )
 
+_schema_created = False
+
 
 @pytest.fixture(autouse=True)
 async def setup_test_database() -> AsyncGenerator[None, None]:
     """
     Fixture automatique (autouse=True) :
-    - Avant chaque test : crée toutes les tables vierges.
-    - Après chaque test : supprime toutes les tables pour garantir une isolation totale.
+    - Avant le premier test : crée toutes les tables, une seule fois par processus.
+    - Après chaque test : vide toutes les tables pour garantir une isolation totale. Les
+      vider coûte bien moins cher que les recréer, et les ids repartent quand même de 1 :
+      sans AUTOINCREMENT, SQLite prend max(id) + 1, donc 1 sur une table vide.
     Équivalent de RefreshDatabase dans Laravel.
     """
+    global _schema_created
+
     async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        if not _schema_created:
+            await conn.run_sync(Base.metadata.create_all)
+            _schema_created = True
 
     yield  # Le test s'exécute ici
 
     async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
 
 
 @pytest.fixture(autouse=True)

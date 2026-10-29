@@ -16,7 +16,7 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **Pydantic v2** — request/response validation and serialization
 - **argon2-cffi** — password hashing · **PyJWT** — access tokens
 - **structlog** — JSON logs with a request ID on every line
-- **pytest** + **httpx** — unit and integration tests, on in-memory SQLite and `fakeredis`
+- **pytest** + **httpx** + **pytest-xdist** — unit and integration tests, on in-memory SQLite and `fakeredis`, in parallel
 - **Ruff** — linting and formatting
 - **Docker Compose** · **GitHub Actions**
 
@@ -114,10 +114,11 @@ Before exposing it beyond your machine, put it behind an HTTPS reverse proxy and
 
 ## Running the tests
 
-No Postgres or Redis needed — the suite runs on in-memory SQLite and `fakeredis`.
+No Postgres or Redis needed — the suite runs on in-memory SQLite and `fakeredis`, on three parallel workers.
 
 ```bash
 uv run pytest              # full suite
+uv run pytest -n 0 tests/test_todos.py::test_name   # one test, without parallel workers
 uv run ruff check .        # lint
 uv run ruff format .       # format
 ```
