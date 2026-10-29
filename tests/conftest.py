@@ -116,7 +116,12 @@ async def client(
     """
 
     async def override_get_db_session() -> AsyncGenerator[AsyncSession, None]:
-        yield db_session
+        try:
+            yield db_session
+            await db_session.commit()
+        except Exception:
+            await db_session.rollback()
+            raise
 
     async def override_get_redis_client() -> AsyncGenerator[fakeredis.FakeAsyncRedis, None]:
         yield redis_client
