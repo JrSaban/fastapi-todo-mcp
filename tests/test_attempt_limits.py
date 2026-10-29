@@ -135,11 +135,11 @@ async def test_parallel_failed_logins_are_capped_at_the_limit(
 async def test_parallel_wrong_current_passwords_are_capped_at_the_limit(
     authenticated_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setitem(
-        app.dependency_overrides,
-        get_user_service,
-        lambda: SlowFailingService(InvalidPasswordError("Mot de passe incorrect")),
-    )
+    failing = SlowFailingService(InvalidPasswordError("Mot de passe incorrect"))
+    # The route also takes AuthService: replaced too, so that no request opens the shared
+    # test session, which can't serve concurrent requests.
+    monkeypatch.setitem(app.dependency_overrides, get_user_service, lambda: failing)
+    monkeypatch.setitem(app.dependency_overrides, get_auth_service, lambda: failing)
 
     responses = await asyncio.gather(
         *(
@@ -211,10 +211,14 @@ async def test_another_refusal_on_a_sensitive_action_is_not_counted(
     redis_client: fakeredis.FakeAsyncRedis,
 ) -> None:
     """Right password, but the new email is taken: only a wrong password counts."""
+    # Read before the request: the route changes this same object, and the failed request's
+    # rollback expires it.
+    key = sensitive_action_rate_limit_key(current_user.id)
+
     response = await authenticated_client.patch(
         "/api/v1/users/me/email",
         json={"new_email": other_user.email, "current_password": PASSWORD},
     )
 
     assert response.status_code == 409
-    assert await _counter(redis_client, sensitive_action_rate_limit_key(current_user.id)) == 0
+    assert await _counter(redis_client, key) == 0
