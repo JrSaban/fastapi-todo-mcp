@@ -1,8 +1,9 @@
 [project]
 name = "fastapi-todo-mcp"
 version = "0.1.0"
-description = "FastAPI To-Do List API with Clean Architecture"
+description = "FastAPI to-do API with an MCP server for AI agents"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.19.1",
