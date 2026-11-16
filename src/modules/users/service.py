@@ -196,3 +196,16 @@ class UserService:
         if changes:
             await self.audit.log_updated(entity=user, changed_fields=changes)
         return user
+
+    async def create_admin(self, data: UserCreate) -> User:
+        """Create a new account and make it an admin, auditing both steps.
+
+        No permission check: the caller vouches for the right to do it. Only a trusted entry point,
+        such as a command run on the server, may call it, never a route. It creates a new account
+        only, so it can't promote an existing one.
+        """
+        user = await self.create_user(data)
+        user = await self.repository.set_admin(user, True)
+        await self.audit.log_updated(entity=user, changed_fields=["is_admin"])
+
+        return user
