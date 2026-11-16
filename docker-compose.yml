@@ -7,6 +7,7 @@ x-app: &app
     # Montage de volume pour activer le rechargement à chaud (Hot-Reload) lors du développement local
     - ./src:/app/src
     - ./.env:/app/.env
+    - ./alembic:/app/alembic
   env_file:
     - .env
   environment:
@@ -92,10 +93,6 @@ services:
   migrate:
     <<: *app
     restart: "no"
-    volumes:
-      - ./src:/app/src
-      - ./.env:/app/.env
-      - ./alembic:/app/alembic
     container_name: todo_migrate
     command: [ "uv", "run", "alembic", "upgrade", "head" ]
     depends_on: !override
