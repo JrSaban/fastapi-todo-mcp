@@ -5,6 +5,7 @@ exigeant déjà un admin. Le droit de la lancer vient de l'accès au serveur.
 Équivalent conceptuel d'une commande dans app/Console/Commands dans Laravel.
 """
 
+import argparse
 import asyncio
 import sys
 from getpass import getpass
@@ -62,7 +63,7 @@ async def commit_admin(data: UserCreate) -> User:
         return user
 
 
-def create_admin() -> None:
+def create_admin(args: argparse.Namespace) -> None:
     """Run the `create-admin` command: ask the questions, then create the admin."""
     try:
         print("Creating an admin user")
