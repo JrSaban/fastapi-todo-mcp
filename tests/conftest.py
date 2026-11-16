@@ -90,10 +90,11 @@ async def setup_test_database() -> AsyncGenerator[None, None]:
 
 @pytest.fixture(autouse=True)
 def background_code_uses_test_database(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Jobs and the job-tracking middleware open their own sessions from the production
-    factory, out of reach of dependency_overrides: point them at the test database, or
-    every test that runs a job would write into the real Postgres."""
+    """Jobs, the job-tracking middleware and the console commands open their own sessions
+    from the production factory, out of reach of dependency_overrides: point them at the
+    test database, or every test that runs one would write into the real Postgres."""
     for module in (
+        "src.console.create_admin",
         "src.core.middlewares",
         "src.modules.api_tokens.tasks",
         "src.modules.approvals.tasks",
