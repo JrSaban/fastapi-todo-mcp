@@ -81,13 +81,13 @@ docker compose up -d --build   # API on :8000, Postgres on :5432, Redis on :6379
 
 The database migrations run on their own before the API starts, at every `up`.
 
-To try the API with data already in it, load the demo accounts, categories and todos. The command prints the accounts and their passwords:
+To try the API with data already in it, load the demo accounts, categories and todos. The command prints the accounts and their passwords, drawn at random on each run:
 
 ```bash
 docker compose exec api uv run python -m charmer seed-demo
 ```
 
-It is meant for a fresh install, and fails without writing anything if its accounts or categories already exist. To start over from an empty database, wipe the volumes, then start again:
+It only runs on a fresh install: as soon as the database holds an account, it refuses without writing anything. To start over from an empty database, wipe the volumes, then start again:
 
 ```bash
 docker compose down -v

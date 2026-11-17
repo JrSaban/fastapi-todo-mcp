@@ -1,10 +1,11 @@
 """
 Commande `seed-demo` : remplit une installation neuve avec les données de `demo_data.py` (un
 admin, deux utilisateurs, leurs catégories et leurs todos), puis affiche les identifiants.
+Les mots de passe sont tirés au hasard à chaque lancement et ne sont écrits nulle part : des
+données de démo oubliées sur une vraie installation n'y laissent pas d'admin au mot de passe
+public. Elle refuse toute base qui contient déjà un compte, avant d'écrire quoi que ce soit.
 Tout passe par les services, donc chaque écriture est auditée, sans acteur : c'est le système.
-Une seule transaction, comptes créés en premier : relancée sur une base déjà remplie, elle
-échoue sur l'email du premier compte et n'écrit rien. Pour repartir de zéro, il faut vider la
-base (`docker compose down -v`, puis `up`).
+Pour repartir de zéro, il faut vider la base (`docker compose down -v`, puis `up`).
 Équivalent conceptuel d'un seeder lancé par `php artisan db:seed` dans Laravel.
 """
 
@@ -35,7 +36,8 @@ from src.modules.users.service import UserService
 async def create_users(user_service: UserService) -> dict[str, tuple[User, str]]:
     """Create the demo accounts, the admin through `create_admin`.
 
-    Returns each account and its plain password, by email: the categories and todos name their
+    Each account gets a password drawn at random. Returns each account and that plain
+    password, by email: the categories and todos name their
     owner by email, and the command prints the passwords at the end.
     """
     demo_users = {}
@@ -106,7 +108,8 @@ async def create_todos(
 async def build_demo() -> dict[str, tuple[User, str]]:
     """Write all the demo data in one session and commit it once, at the end.
 
-    Any failure leaves the database untouched. Returns the accounts for the final printout.
+    Refuses a database that already holds an account, before any write; any later failure
+    leaves the database untouched too. Returns the accounts for the final printout.
     """
     async with async_session_factory() as session:
         user_service = UserService(

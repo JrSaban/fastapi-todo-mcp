@@ -1,8 +1,8 @@
 """
 Données de la commande `seed-demo`. Les catégories et les todos sont rangés sous l'email de leur
 propriétaire, et un todo désigne ses catégories par leur nom : leurs id n'existent qu'une fois
-créés en base. Les mots de passe sont volontairement publics, la commande les affiche : ces
-comptes ne servent qu'à essayer l'API.
+créés en base. Aucun mot de passe ici : la commande les tire au hasard. Les emails sont en
+`example.com`, un domaine réservé (RFC 2606) qui n'appartient à personne.
 """
 
 from typing import NotRequired, TypedDict
@@ -11,7 +11,8 @@ from src.modules.categories.schemas import CategoryCreate
 
 
 class DemoUser(TypedDict):
-    """A demo account: the fields of `UserCreate`, plus whether it is the admin."""
+    """A demo account: the fields of `UserCreate` but the password, plus whether it is the
+    admin."""
 
     email: str
     first_name: str
