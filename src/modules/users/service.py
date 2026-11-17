@@ -209,3 +209,7 @@ class UserService:
         await self.audit.log_updated(entity=user, changed_fields=["is_admin"])
 
         return user
+
+    async def has_users(self) -> bool:
+        """Check if there are any users."""
+        return await self.repository.count() != 0
