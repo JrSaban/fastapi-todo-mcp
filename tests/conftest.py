@@ -95,6 +95,7 @@ def background_code_uses_test_database(monkeypatch: pytest.MonkeyPatch) -> None:
     test database, or every test that runs one would write into the real Postgres."""
     for module in (
         "src.console.create_admin",
+        "src.console.seed_demo",
         "src.core.middlewares",
         "src.modules.api_tokens.tasks",
         "src.modules.approvals.tasks",

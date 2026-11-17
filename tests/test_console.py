@@ -1,4 +1,7 @@
-"""Tests of the `charmer` console: the command line parsing and the `create-admin` command."""
+"""Tests of the `charmer` console: the command line parsing and the `create-admin` command.
+
+`seed-demo` has its own file, `test_seed_demo.py`.
+"""
 
 import argparse
 from collections.abc import Iterator
@@ -52,15 +55,21 @@ def test_main_without_command_exits_with_usage(
     assert "command" in capsys.readouterr().err
 
 
-def test_main_runs_the_chosen_command_with_the_parsed_args(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize(
+    ("command", "function_name"),
+    [("create-admin", "create_admin"), ("seed-demo", "seed_demo")],
+)
+def test_main_runs_the_chosen_command_with_the_parsed_args(
+    monkeypatch: pytest.MonkeyPatch, command: str, function_name: str
+):
     received: list[argparse.Namespace] = []
-    monkeypatch.setattr("sys.argv", ["charmer", "create-admin"])
-    monkeypatch.setattr("src.console.main.create_admin", received.append)
+    monkeypatch.setattr("sys.argv", ["charmer", command])
+    monkeypatch.setattr(f"src.console.main.{function_name}", received.append)
 
     main()
 
     assert len(received) == 1
-    assert received[0].command == "create-admin"
+    assert received[0].command == command
 
 
 # --- build_user ---
