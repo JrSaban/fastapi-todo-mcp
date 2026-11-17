@@ -81,11 +81,7 @@ async def create_categories(
 async def create_todos(
     todo_service: TodoService, users: dict[str, tuple[User, str]], categories: dict[str, int]
 ) -> None:
-    """Create the demo todos, then complete or delete those marked so.
-
-    Completing and deleting go through the service as the owner would, so each step has its own
-    audit entry.
-    """
+    """Create the demo todos, then complete or delete those marked so."""
     for owner_email, list_todos in TODOS.items():
         user, _ = users[owner_email]
 
