@@ -10,6 +10,7 @@ base (`docker compose down -v`, puis `up`).
 
 import argparse
 import asyncio
+import secrets
 import sys
 
 from pydantic import ValidationError
@@ -40,13 +41,14 @@ async def create_users(user_service: UserService) -> dict[str, tuple[User, str]]
     demo_users = {}
 
     for demo_user in USERS:
+        password = secrets.token_urlsafe(8)
         user_data = UserCreate(
             email=demo_user["email"],
             first_name=demo_user["first_name"],
             last_name=demo_user["last_name"],
             pseudo=demo_user["pseudo"],
-            password=demo_user["password"],
-            confirm_password=demo_user["confirm_password"],
+            password=password,
+            confirm_password=password,
         )
 
         if demo_user.get("is_admin", False):
@@ -54,7 +56,7 @@ async def create_users(user_service: UserService) -> dict[str, tuple[User, str]]
         else:
             user = await user_service.create_user(user_data)
 
-        demo_users[demo_user["email"]] = (user, demo_user["password"])
+        demo_users[demo_user["email"]] = (user, password)
 
     return demo_users
 
@@ -120,6 +122,12 @@ async def build_demo() -> dict[str, tuple[User, str]]:
             CategoryRepository(session),
             AuditLogService(AuditLogRepository(session)),
         )
+
+        if await user_service.has_users():
+            raise ConflictError(
+                "La base contient déjà des comptes : la démo ne se lance que sur une "
+                "installation neuve. Rien n'a été créé."
+            )
 
         users = await create_users(user_service)
         categories = await create_categories(category_service, users)

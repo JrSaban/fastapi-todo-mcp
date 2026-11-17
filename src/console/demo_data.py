@@ -17,8 +17,6 @@ class DemoUser(TypedDict):
     first_name: str
     last_name: str
     pseudo: str
-    password: str
-    confirm_password: str
     is_admin: NotRequired[bool]
 
 
@@ -34,46 +32,40 @@ class DemoTodo(TypedDict):
 
 USERS: list[DemoUser] = [
     {
-        "email": "admin@demo.com",
+        "email": "admin@example.com",
         "first_name": "Admin",
         "last_name": "Demo",
         "pseudo": "admindemo",
-        "password": "secret12345",
-        "confirm_password": "secret12345",
         "is_admin": True,
     },
     {
-        "email": "johndoe@demo.com",
+        "email": "johndoe@example.com",
         "first_name": "John",
         "last_name": "Doe",
         "pseudo": "johndoe",
-        "password": "azerty12345",
-        "confirm_password": "azerty12345",
     },
     {
-        "email": "janedoe@demo.com",
+        "email": "janedoe@example.com",
         "first_name": "Jane",
         "last_name": "Doe",
         "pseudo": "janedoe",
-        "password": "qwerty12345",
-        "confirm_password": "qwerty12345",
     },
 ]
 
 CATEGORIES: dict[str, list[CategoryCreate]] = {
-    "admin@demo.com": [CategoryCreate(name="Home", color="#8FBC8F")],
-    "johndoe@demo.com": [
+    "admin@example.com": [CategoryCreate(name="Home", color="#8FBC8F")],
+    "johndoe@example.com": [
         CategoryCreate(name="Work"),
         CategoryCreate(name="Sport"),
     ],
-    "janedoe@demo.com": [
+    "janedoe@example.com": [
         CategoryCreate(name="Family", color="#FF69B4"),
         CategoryCreate(name="Food"),
     ],
 }
 
 TODOS: dict[str, list[DemoTodo]] = {
-    "admin@demo.com": [
+    "admin@example.com": [
         {
             "title": "Call plumber",
         },
@@ -102,7 +94,7 @@ TODOS: dict[str, list[DemoTodo]] = {
             "is_deleted": True,
         },
     ],
-    "johndoe@demo.com": [
+    "johndoe@example.com": [
         {
             "title": "Buy milk",
         },
@@ -148,7 +140,7 @@ TODOS: dict[str, list[DemoTodo]] = {
             "is_deleted": True,
         },
     ],
-    "janedoe@demo.com": [
+    "janedoe@example.com": [
         {
             "title": "Book dentist appointment",
         },
