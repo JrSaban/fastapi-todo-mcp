@@ -909,3 +909,14 @@ async def test_create_admin_with_existing_email_raises_conflict_and_promotes_nob
 
     mock_user_repo.set_admin.assert_not_called()
     mock_audit.log_updated.assert_not_called()
+
+
+@pytest.mark.parametrize(("count", "expected"), [(0, False), (1, True), (3, True)])
+async def test_has_users_counts_every_account(count: int, expected: bool):
+    """No filter: a deactivated account still makes the database non-empty."""
+    mock_user_repo = AsyncMock()
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
+    mock_user_repo.count.return_value = count
+
+    assert await service.has_users() is expected
+    mock_user_repo.count.assert_called_once_with()

@@ -8,7 +8,7 @@ from collections import Counter
 
 import fakeredis
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,10 +16,9 @@ from src.console import seed_demo as seed_demo_module
 from src.console.demo_data import CATEGORIES, TODOS, USERS
 from src.console.seed_demo import build_demo, seed_demo
 from src.core.exceptions import ConflictError
+from src.core.security import verify_password
 from src.modules.audit.models import AuditAction, AuditLog, AuditResourceType
 from src.modules.categories.models import Category
-from src.modules.categories.repository import CategoryRepository
-from src.modules.categories.schemas import CategoryCreate
 from src.modules.todos.models import Todo
 from src.modules.users.models import User
 
@@ -43,17 +42,33 @@ async def _count(db_session: AsyncSession, model: type) -> int:
 
 
 async def test_build_demo_creates_the_accounts(db_session: AsyncSession):
-    """The accounts are committed, only the one marked so is an admin, and the returned
-    passwords are the plain demo ones, for the final printout."""
-    accounts = await build_demo()
+    """The accounts are committed and only the one marked so is an admin."""
+    await build_demo()
 
     users = (await db_session.scalars(select(User))).all()
     assert {user.email: user.is_admin for user in users} == {
         demo["email"]: demo.get("is_admin", False) for demo in USERS
     }
-    assert {email: password for email, (_, password) in accounts.items()} == {
-        demo["email"]: demo["password"] for demo in USERS
-    }
+
+
+async def test_build_demo_returns_a_random_password_per_account(db_session: AsyncSession):
+    """No password lives in the repository: each run draws new ones, and the returned one is
+    the one that logs in, for the final printout."""
+    first_run = await build_demo()
+    for model in (AuditLog, Todo, Category, User):
+        await db_session.execute(delete(model))
+    await db_session.commit()
+    second_run = await build_demo()
+
+    stored = dict(
+        (await db_session.execute(select(User.email, User.hashed_password))).tuples().all()
+    )
+    passwords = [password for _, password in second_run.values()]
+    assert len(set(passwords)) == len(USERS)
+    assert all(
+        verify_password(password, stored[email]) for email, (_, password) in second_run.items()
+    )
+    assert all(first_run[email][1] != second_run[email][1] for email in first_run)
 
 
 async def test_build_demo_creates_each_category_by_its_owner(db_session: AsyncSession):
@@ -144,8 +159,6 @@ async def test_build_demo_audits_every_write_as_the_system(db_session: AsyncSess
 
 
 async def test_build_demo_run_twice_fails_and_writes_nothing_more(db_session: AsyncSession):
-    """The accounts come first: a second run fails on the first email, before any other
-    write, and the whole transaction is rolled back."""
     await build_demo()
     counts = [await _count(db_session, model) for model in (User, Category, Todo, AuditLog)]
 
@@ -157,22 +170,18 @@ async def test_build_demo_run_twice_fails_and_writes_nothing_more(db_session: As
     )
 
 
-async def test_build_demo_with_a_taken_category_name_writes_nothing(
+async def test_build_demo_on_a_database_in_use_writes_nothing(
     db_session: AsyncSession, current_user: User
 ):
-    """A database already in use can hold a demo category's name: the accounts created before
-    it are rolled back with the rest."""
-    taken_name = next(iter(CATEGORIES.values()))[0].name
-    await CategoryRepository(db_session).create(
-        created_by_id=current_user.id, data=CategoryCreate(name=taken_name)
-    )
+    """Any account, demo or not, means the install is in use: the command refuses before its
+    first write, so it can't add an admin to a real install."""
     await db_session.commit()
 
-    with pytest.raises(ConflictError):
+    with pytest.raises(ConflictError, match="installation neuve"):
         await build_demo()
 
     assert (await db_session.scalars(select(User.email))).all() == [current_user.email]
-    assert await _count(db_session, Category) == 1
+    assert await _count(db_session, Category) == 0
     assert await _count(db_session, Todo) == 0
     assert await _count(db_session, AuditLog) == 0
 
