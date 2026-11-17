@@ -8,6 +8,7 @@ ici, c'est `charmer.py`, à la racine.
 import argparse
 
 from src.console.create_admin import create_admin
+from src.console.seed_demo import seed_demo
 
 
 def main() -> None:
@@ -20,6 +21,11 @@ def main() -> None:
 
     create_admin_parser = subparsers.add_parser("create-admin", help="Create an admin user.")
     create_admin_parser.set_defaults(func=create_admin)
+
+    seed_demo_parser = subparsers.add_parser(
+        "seed-demo", help="Create demo users, categories and todos."
+    )
+    seed_demo_parser.set_defaults(func=seed_demo)
 
     args = parser.parse_args()
     args.func(args)
