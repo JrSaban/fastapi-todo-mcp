@@ -44,7 +44,7 @@ USER app
 # Health check : vérifie que l'API répond. /health n'exige pas de token et n'est jamais
 # comptée par le rate limit. Python plutôt que curl, absent de l'image slim : rien à installer.
 # Le worker et le scheduler partagent l'image sans servir de HTTP : le compose le leur désactive
-HEALTHCHECK --interval=30s --timeout=2s --start-period=30s --retries=2 CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+HEALTHCHECK --interval=30s --timeout=2s --start-period=30s --start-interval=2s --retries=2 CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
 
 # Commande de démarrage par défaut :
 # IMPORTANT : --host 0.0.0.0 permet au serveur d'écouter les connexions venant de l'extérieur du conteneur (votre machine hôte)
