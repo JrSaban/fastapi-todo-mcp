@@ -276,7 +276,7 @@ This project is a lab for two learning goals at once.
 **Working with an AI agent, on purpose.** Claude Code is part of the project, with a fixed split of roles: I write the production code; it explains, reviews my code, and writes the tests, the docstrings and the documentation. The agent is steered by files in the repository rather than by repeated instructions:
 
 - [`CLAUDE.md`](CLAUDE.md) records this project's own decisions and their reasons, and nothing that is true of FastAPI in general: the layering rules, why a check is ordered the way it is, the known limitations not to "fix" by accident.
-- [`.claude/skills/`](.claude/skills) holds the repeatable workflows: the commit rules, reviewing a branch before its pull request, reviewing the docs against the code. The two reviews run in read-only agents ([`.claude/agents/`](.claude/agents)).
+- [`.claude/skills/`](.claude/skills) holds the repeatable workflows: the commit rules, reviewing a branch before its pull request, writing the pull-request description, reviewing the docs against the code. The two reviews run in read-only agents ([`.claude/agents/`](.claude/agents)).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) holds the branch, commit and pull-request conventions that people and agent both follow.
 
 The project is also built *for* agents: the MCP server, the approval of bulk actions and the evals came from asking what an agent should and shouldn't be able to do with someone's data.
