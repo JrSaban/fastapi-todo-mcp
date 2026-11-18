@@ -150,7 +150,7 @@ uv run taskiq scheduler src.core.broker:scheduler --fs-discover  # scheduled job
 
 ### Connecting an AI agent (MCP)
 
-The repository ships a `.mcp.json`, so Claude Code offers the `todo-api` server when opened in the project. It needs a personal API token of a **non-admin** account, such as one of the demo users:
+The repository ships a `.mcp.json`, so Claude Code offers the `todo-api` server when opened in the project. The local MCP server runs on your machine, not in Docker: it needs [uv](https://docs.astral.sh/uv/). It also needs a personal API token of a **non-admin** account, such as one of the demo users:
 
 1. Log in (`POST /api/v1/login`), then create a token with `POST /api/v1/api-tokens` and your current password. The token (`tda_...`) is shown only once.
 2. Copy `.env.mcp.example` to `.env.mcp` (gitignored) and put the token in `TODO_API_TOKEN`.
