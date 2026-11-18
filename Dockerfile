@@ -1,6 +1,9 @@
 # Image de base Python 3.12 allégée
 FROM python:3.12-slim
 
+# On crée un utilisateur non-root
+RUN useradd --system -ms /usr/sbin/nologin app
+
 # On récupère le binaire 'uv' directement depuis l'image officielle Astral
 COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
 
@@ -35,6 +38,9 @@ ENV UV_NO_SYNC=1
 # Port d'écoute de l'application
 EXPOSE 8000
 
+# On change l'utilisateur pour exécuter l'application
+USER app
+
 # Commande de démarrage par défaut :
 # IMPORTANT : --host 0.0.0.0 permet au serveur d'écouter les connexions venant de l'extérieur du conteneur (votre machine hôte)
-CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--reload"]
+CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
