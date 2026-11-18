@@ -836,3 +836,87 @@ async def test_set_user_no_admin_last_admin_raises_forbidden_error():
     mock_user_repo.get_by_id.assert_called_once_with(admin_user.id)
     mock_user_repo.count.assert_called_once_with(is_admin=True, is_active=True)
     mock_user_repo.set_admin.assert_not_called()
+
+
+# --- create_admin ---
+
+
+@patch("src.modules.users.service.hash_password", return_value="hashedpassword")
+async def test_create_admin_creates_then_promotes_and_audits_both(mock_hash_password):
+    """The account is created through create_user, then promoted: one audit entry each."""
+    mock_user_repo = AsyncMock()
+    mock_audit = AsyncMock()
+    service = UserService(repository=mock_user_repo, audit_service=mock_audit)
+    user_data = UserCreate(
+        email="admin@gmail.com",
+        first_name="John",
+        last_name="Doe",
+        password="password",
+        confirm_password="password",
+    )
+    created_user = User(
+        id=1,
+        email="admin@gmail.com",
+        first_name="John",
+        last_name="Doe",
+        is_active=True,
+        is_admin=False,
+    )
+    promoted_user = User(
+        id=1,
+        email="admin@gmail.com",
+        first_name="John",
+        last_name="Doe",
+        is_active=True,
+        is_admin=True,
+    )
+    mock_user_repo.create.return_value = created_user
+    mock_user_repo.set_admin.return_value = promoted_user
+
+    result = await service.create_admin(user_data)
+
+    assert result == promoted_user
+    mock_user_repo.create.assert_called_once_with(user_data, "hashedpassword")
+    mock_user_repo.set_admin.assert_called_once_with(created_user, True)
+    mock_audit.log_created.assert_called_once_with(entity=created_user)
+    mock_audit.log_updated.assert_called_once_with(
+        entity=promoted_user, changed_fields=["is_admin"]
+    )
+
+
+@patch("src.modules.users.service.hash_password", return_value="hashedpassword")
+async def test_create_admin_with_existing_email_raises_conflict_and_promotes_nobody(
+    mock_hash_password,
+):
+    """A taken email stops the command before the promotion, which could otherwise hit
+    an existing account."""
+    mock_user_repo = AsyncMock()
+    mock_audit = AsyncMock()
+    service = UserService(repository=mock_user_repo, audit_service=mock_audit)
+    user_data = UserCreate(
+        email="taken@gmail.com",
+        first_name="John",
+        last_name="Doe",
+        password="password",
+        confirm_password="password",
+    )
+    mock_user_repo.create.side_effect = IntegrityError(
+        "stmt", {}, Exception("uq_users_email_lower")
+    )
+
+    with pytest.raises(ConflictError):
+        await service.create_admin(user_data)
+
+    mock_user_repo.set_admin.assert_not_called()
+    mock_audit.log_updated.assert_not_called()
+
+
+@pytest.mark.parametrize(("count", "expected"), [(0, False), (1, True), (3, True)])
+async def test_has_users_counts_every_account(count: int, expected: bool):
+    """No filter: a deactivated account still makes the database non-empty."""
+    mock_user_repo = AsyncMock()
+    service = UserService(repository=mock_user_repo, audit_service=AsyncMock())
+    mock_user_repo.count.return_value = count
+
+    assert await service.has_users() is expected
+    mock_user_repo.count.assert_called_once_with()

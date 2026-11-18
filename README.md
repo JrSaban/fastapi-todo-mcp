@@ -76,8 +76,28 @@ openssl rand -hex 32
 Then start everything:
 
 ```bash
-docker compose up -d --build                          # API on :8000, Postgres on :5432, Redis on :6379, job worker + scheduler
-docker compose exec api uv run alembic upgrade head   # create the tables
+docker compose up -d --build   # API on :8000, Postgres on :5432, Redis on :6379, job worker + scheduler
+```
+
+The database migrations run on their own before the API starts, at every `up`.
+
+To try the API with data already in it, load the demo accounts, categories and todos. The command prints the accounts and their passwords, drawn at random on each run:
+
+```bash
+docker compose exec api uv run python -m charmer seed-demo
+```
+
+It only runs on a fresh install: as soon as the database holds an account, it refuses without writing anything. To start over from an empty database, wipe the volumes, then start again:
+
+```bash
+docker compose down -v
+docker compose up -d
+```
+
+To create your own admin account instead, answer the questions of:
+
+```bash
+docker compose exec api uv run python -m charmer create-admin
 ```
 
 Interactive API docs (Swagger UI) are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `DEBUG=True`, as in `.env.example`. They are off by default.
@@ -88,7 +108,8 @@ Interactive API docs (Swagger UI) are available at [http://localhost:8000/docs](
 ```bash
 docker compose up -d db redis
 uv sync
-uv run alembic upgrade head
+uv run alembic upgrade head                               # no migrate service on the host: run them yourself
+uv run python -m charmer seed-demo                        # optional demo data, or create-admin
 uv run uvicorn src.main:app --reload --no-proxy-headers   # client IPs come from TRUSTED_PROXIES only
 uv run taskiq worker src.core.broker:broker --fs-discover        # background jobs, in another terminal
 uv run taskiq scheduler src.core.broker:scheduler --fs-discover  # scheduled jobs (one instance only)
@@ -98,7 +119,7 @@ uv run taskiq scheduler src.core.broker:scheduler --fs-discover  # scheduled job
 
 ### Connecting an AI agent (MCP)
 
-The repository ships a `.mcp.json`, so Claude Code offers the `todo-api` server when opened in the project. It needs a personal API token of a **non-admin** account:
+The repository ships a `.mcp.json`, so Claude Code offers the `todo-api` server when opened in the project. It needs a personal API token of a **non-admin** account, such as one of the demo users:
 
 1. Log in (`POST /api/v1/login`), then create a token with `POST /api/v1/api-tokens` and your current password. The token (`tda_...`) is shown only once.
 2. Copy `.env.mcp.example` to `.env.mcp` (gitignored) and put the token in `TODO_API_TOKEN`.
@@ -191,7 +212,9 @@ src/
 │   ├── jobs/         # job tracking: table, Taskiq middleware, status endpoints
 │   ├── maintenance/  # background jobs spanning several modules (weekly pruning)
 │   └── todos_categories/  # many-to-many association table
+├── console/         # console commands (create-admin, seed-demo) and their demo data
 └── main.py          # app wiring: routers, middleware order, exception handler
+charmer.py           # console launcher: python -m charmer <command>, like Laravel's artisan
 mcp_server/          # MCP server for AI agents, stdio or HTTP: an HTTP client of the API, never imports src/
 docs/                # design documents (the remote MCP server's security review)
 evals/               # evals: a real Claude model uses the MCP tools, scenarios check what it did
@@ -200,3 +223,7 @@ tests/               # integration tests + tests/unit/ for isolated service test
 ```
 
 Branch, commit and PR conventions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

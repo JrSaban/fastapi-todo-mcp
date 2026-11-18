@@ -7,6 +7,7 @@ x-app: &app
     # Montage de volume pour activer le rechargement à chaud (Hot-Reload) lors du développement local
     - ./src:/app/src
     - ./.env:/app/.env
+    - ./alembic:/app/alembic
   env_file:
     - .env
   environment:
@@ -16,8 +17,8 @@ x-app: &app
     # The MCP container's fixed address (services.mcp): the only proxy the API trusts here
     - TRUSTED_PROXIES=["172.30.0.10"]
   depends_on:
-    db:
-      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
     redis:
       condition: service_healthy
 
@@ -88,6 +89,15 @@ services:
     <<: *app
     container_name: todo_scheduler
     command: [ "uv", "run", "taskiq", "scheduler", "src.core.broker:scheduler", "--fs-discover" ]
+
+  migrate:
+    <<: *app
+    restart: "no"
+    container_name: todo_migrate
+    command: [ "uv", "run", "alembic", "upgrade", "head" ]
+    depends_on: !override
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:
