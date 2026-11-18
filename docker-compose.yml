@@ -64,7 +64,8 @@ services:
       default:
         ipv4_address: 172.30.0.10
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   redis:
     image: redis:8-alpine
@@ -84,11 +85,18 @@ services:
   worker:
     <<: *app
     container_name: todo_worker
+    # Le HEALTHCHECK de l'image appelle /health sur localhost:8000, où rien n'écoute dans ce
+    # conteneur : sans ça, il passerait unhealthy alors qu'il fonctionne
+    healthcheck:
+      disable: true
     command: [ "uv", "run", "taskiq", "worker", "src.core.broker:broker", "--fs-discover", "--reload" ]
 
   scheduler:
     <<: *app
     container_name: todo_scheduler
+    # Pas de serveur HTTP ici non plus : même raison que pour le worker
+    healthcheck:
+      disable: true
     command: [ "uv", "run", "taskiq", "scheduler", "src.core.broker:scheduler", "--fs-discover" ]
 
   migrate:
