@@ -47,7 +47,7 @@ CLAUDE.md:
 README.md:
 - It is a portfolio page for recruiters, not a reference: flag what is wrong or outdated,
   not what is left out on purpose (internals, known limitations — those live in CLAUDE.md).
-- Features, API overview and Project structure: flag features, endpoints or modules present
+- Key features, API overview and Project structure: flag features, endpoints or modules present
   in the code but missing or outdated.
 - Tech stack: compare with `pyproject.toml`.
 - Getting started and Running the tests: you can't run anything. The caller passes the

@@ -6,7 +6,7 @@ collaboration with AI agents and agent-facing tooling (MCP, evals, ...), not jus
 assistant to type faster.
 
 Items are removed once done, as part of the same PR that finishes them. What's already built
-lives in the README's Features section and in `CLAUDE.md`, not here.
+lives in the README's Key features section and in `CLAUDE.md`, not here.
 
 ## Make the project a deliverable
 
@@ -16,5 +16,5 @@ few minutes, from its GitHub page alone. Decided on 2026-11-12, in this order, o
 1. **Version 1.0.0.** Once everything above is in `main`: a `v1.0.0` tag and a GitHub release.
 
 No online demo: deploying and exposing it publicly is out of scope for this project, and may
-come with the next one. The screenshot or GIF stands in for it.
+come with the next one. The GIF at the top of the README stands in for it.
 

@@ -95,7 +95,7 @@ A few decisions worth a second look if you're skimming the code:
 - **Ownership lives in the query, not as an afterthought.** `TodoRepository` takes an `owner_id: int | None` filter; the service computes it as `current_user.id`, or, for an admin, the optional `owner_id` query parameter (no filter when absent). Requesting someone else's todo returns `404`, never `403` — the row simply doesn't match the filter, so the API never confirms whether an ID belongs to another user.
 
 <details>
-<summary><strong>Eight more</strong></summary>
+<summary><strong>Nine more</strong></summary>
 
 - **Uniqueness is enforced by the database, not by a check-then-insert.** Category names, emails and pseudos are unique case-insensitively through functional unique indexes (`lower(name)`). Services don't query first: they insert, catch the `IntegrityError`, and return a clean `409` — so two concurrent requests can't both slip through. A dedicated test runs the two inserts concurrently to prove it. The category index is partial (`WHERE deleted_at IS NULL`), so the name of a soft-deleted category can be reused.
 - **Refresh tokens are stored hashed and rotated atomically.** Redis only holds the SHA-256 of a token, never the token itself. Each `/refresh` consumes it with a single `GETDEL`, so the same token can't be exchanged twice, even by two requests arriving at the same time. Rotation alone would let an active session renew itself forever, so a separate, longer-lived marker caps the session's absolute lifetime regardless of activity. Changing your password or your email revokes it outright, the same way logging out does.
