@@ -14,7 +14,7 @@ Language conventions, all deliberate:
 - Function, method and class docstrings are in **English**. Many existing ones are still in French from before this rule.
 - Test docstrings, `CLAUDE.md`, `README.md` and `CONTRIBUTING.md` are in English.
 
-Branch names, commit messages and PR rules live in `CONTRIBUTING.md`; the PR template is `.github/pull_request_template.md` (Why / Changes / Notes). Planned work is in `ROADMAP.md`: an item is removed from it in the same PR that finishes it.
+Branch names, commit messages and PR rules live in `CONTRIBUTING.md`; the PR template is `.github/pull_request_template.md` (Why / Changes / Notes). Planned work is in `ROADMAP.md`: an item is removed from it in the same PR that finishes it. The version is written twice, in `pyproject.toml` and in `FastAPI(version=...)` in `src/main.py` (shown in the OpenAPI docs): a release changes both, then `uv lock` updates `uv.lock`.
 
 ## Commands
 
