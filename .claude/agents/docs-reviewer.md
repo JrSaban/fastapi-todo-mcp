@@ -47,16 +47,17 @@ CLAUDE.md:
 README.md:
 - It is a portfolio page for recruiters, not a reference: flag what is wrong or outdated,
   not what is left out on purpose (internals, known limitations — those live in CLAUDE.md).
-- Features, API overview and Project structure: flag features, endpoints or modules present
+- Key features, API overview and Project structure: flag features, endpoints or modules present
   in the code but missing or outdated.
 - Tech stack: compare with `pyproject.toml`.
-- Getting started and Running the tests: you can't run anything. The caller passes the
+- Try it, Getting started and Running the tests: you can't run anything. The caller passes the
   outcome of three setup checks (`docker compose config -q`, `uv sync --frozen --dry-run`,
   `uv run pytest --collect-only -q`): a failure is a finding, with the error as evidence.
   For the rest, check the commands and setup steps are consistent with `docker-compose.yml`,
   `pyproject.toml`, `.env.example` and `.mcp.json`. Never claim a command works beyond what
   those checks show; report what you couldn't check as `unverifiable`.
-- Design highlights: flag statements the code contradicts.
+- How it fits together, Design highlights and How this was built: flag statements the code
+  or the linked files contradict.
 
 ROADMAP.md:
 - Flag an item already implemented in the code: it should have been removed in the PR

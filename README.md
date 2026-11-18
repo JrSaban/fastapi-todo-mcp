@@ -2,25 +2,65 @@
 
 [![CI](https://github.com/JrSaban/fastapi-todo-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/JrSaban/fastapi-todo-mcp/actions/workflows/ci.yml)
 
-A REST API for managing todos and categories, built with **FastAPI** and **Clean Architecture** in Python, and the lab for two learning goals. The first is moving from PHP/Laravel to Python, FastAPI and SQLAlchemy: I write the production code, from JWT authentication with rotating refresh tokens to a generic repository layer on Python 3.12's native generics. The second is learning to build software *with* AI agents, and *for* them. Claude Code explains, reviews my code and writes the tests and the documentation, while the API is exposed to agents through an MCP server, with personal API tokens, human approval of bulk actions, an audit log, and evals that measure how a real Claude model uses it.
+**A todo-list API that people and their AI agents share, safely.** People use it over REST; an agent such as Claude Code uses it through an MCP server, with a personal API token and under the same rules as any other client. An agent can read and change its user's todos, but it can't manage the account, act as an admin, or run a bulk deletion on its own: that waits for the human's approval. Every change made through the API is audited, by a human or an agent, and evals measure how a real Claude model actually behaves with the tools.
 
-## Tech stack
+Built in Python with FastAPI, PostgreSQL and Redis, following a Clean Architecture layering.
 
-- **Python 3.12** · [uv](https://docs.astral.sh/uv/) for dependency management
-- **FastAPI** — async web framework, automatic OpenAPI docs
-- **SQLAlchemy 2.0** (async) + **Alembic** — ORM and migrations
-- **PostgreSQL** · **Redis** (cache, refresh tokens, rate-limit counters, idempotency keys, job queue)
-- **Taskiq** — async background jobs and scheduling (worker + scheduler processes)
-- **MCP Python SDK** — the MCP server that lets an AI agent use the API
-- **Anthropic Python SDK** — evals that run a real Claude model on the MCP tools
-- **Pydantic v2** — request/response validation and serialization
-- **argon2-cffi** — password hashing · **PyJWT** — access tokens
-- **structlog** — JSON logs with a request ID on every line
-- **pytest** + **httpx** + **pytest-xdist** — unit and integration tests, on in-memory SQLite and `fakeredis`, in parallel
-- **Ruff** — linting and formatting
-- **Docker Compose** · **GitHub Actions**
+![Claude Code lists the user's todos through the MCP server, then asks to delete the completed ones: the deletion waits for the user's approval](docs/agent-demo.gif)
 
-## Features
+## How it fits together
+
+```mermaid
+flowchart LR
+    person["Person<br/>browser, curl, app"] -- "JWT" --> api
+    agent["AI agent<br/>Claude Code"] -- "stdio" --> mcp_local["MCP server<br/>local, one user"]
+    remote_agents["AI agents"] -- "HTTP + mcp token" --> mcp_remote["MCP server<br/>remote, shared"]
+    mcp_local -- "API token" --> api
+    mcp_remote -- "token + service key" --> api
+    api["FastAPI API"] --> postgres[("PostgreSQL")]
+    api --> redis[("Redis<br/>cache, tokens, rate limits,<br/>idempotency, job queue")]
+    scheduler["Scheduler"] -- "scheduled jobs" --> redis
+    redis -- "jobs" --> worker["Worker"]
+    worker --> postgres
+```
+
+- The **API** is the only thing that touches the data. The MCP server is a plain HTTP client of it and never imports its code, so an agent has no way around the API's permissions, rate limits and idempotency.
+- The **MCP server** runs locally for one user (stdio), or remotely over HTTP, shared by many agents that each send their own token.
+- The **worker** runs background jobs: the clean-ups of deleted todos and categories, expired API tokens and approval requests, old job records and audit entries. The **scheduler** sends them on their weekly or monthly schedule; an admin can also start the clean-up of deleted rows on demand.
+- **Redis** holds what is short-lived: the category cache, refresh tokens, rate-limit counters, idempotency keys and the job queue.
+
+## Try it
+
+You need Docker. Clone the repository and create the configuration:
+
+```bash
+git clone https://github.com/JrSaban/fastapi-todo-mcp.git
+cd fastapi-todo-mcp
+cp .env.example .env
+```
+
+Set a real `JWT_SECRET_KEY` in `.env`: the app refuses to start with the placeholder. Generate one with `openssl rand -hex 32`. Then start everything and load the demo data:
+
+```bash
+docker compose up -d --build
+docker compose exec api uv run python -m charmer seed-demo
+```
+
+The migrations run on their own before the API starts. `seed-demo` creates an admin, two users, their categories and todos, and prints the three accounts with their passwords, drawn at random on each run. The API listens on port 8000, and its interactive docs are at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+To let Claude Code use it, see [Connecting an AI agent](#connecting-an-ai-agent-mcp) below.
+
+## Key features
+
+- **An MCP server for AI agents** — 14 tools to list, read, create, update, complete, delete and restore todos, and to read the categories. Locally for one user, or as a remote HTTP server shared by many agents.
+- **No back door for an agent** — it acts with a personal API token, under the same permissions, rate limits and idempotency as any client. A token can't manage the account, act as an admin, or create a category, the one text every other user's agent would read.
+- **A human approves bulk actions** — an agent deletes one todo at a time directly, but asking to delete all completed todos only creates a request. The user approves it from a login session; the agent can follow it, or cancel it, never approve it.
+- **An audit log of humans and agents** — every change records who made it, and whether as a person or through which API token, with the names of the fields that changed, never their values.
+- **Evals with a real Claude model** — ten scenarios run five times each: does the agent pick the right tool, does it say a bulk deletion awaits approval, does it refuse instructions hidden in a todo title or a category name.
+- **A complete API underneath** — JWT authentication with rotating refresh tokens, roles, private todos and shared categories, soft deletes with restore, rate limiting, idempotency keys, background jobs with tracking, Redis caching, structured logs.
+
+<details>
+<summary><strong>All features, in detail</strong></summary>
 
 - **MCP server for AI agents** — an agent such as Claude Code can list, read, create, update, complete, delete and restore todos, and list and read categories, through 14 tools. It is a plain client of the API with a personal API token, so it goes through the same permissions, rate limits and idempotency as any client. It runs locally for one user, or as a remote HTTP server shared by many agents, each with its own token
 - **Remote MCP server, designed from a security review** — tokens are issued for one usage: an `mcp` token only works through the remote server, which proves itself to the API with a service key, so a stolen one is useless against the API directly. Each request carries its own user's token, never shared inside the server; requests without a token are refused before the MCP protocol, the server keeps no session, rejects unknown hosts (DNS rebinding) and passes each agent's IP to the API's rate limit
@@ -39,68 +79,59 @@ A REST API for managing todos and categories, built with **FastAPI** and **Clean
 - **Background jobs with tracking** — every run is recorded (pending, running, succeeded, failed) and readable through the API, each user seeing their own jobs and admins all of them, scheduled runs included; admins can also start the pruning on demand
 - **Redis caching** on category reads, invalidated on every write
 - **Structured logging** — one JSON line per request, correlated by an `X-Request-ID` header
+- **Console commands** — `create-admin` and `seed-demo`, through `python -m charmer <command>`, like Laravel's `artisan`
+- **Production image** — runs as a non-root user, without hot-reload, with a healthcheck on `GET /health`; the compose setup adds hot-reload for development
 - **Alembic migrations**, including a 3-step pattern (add nullable → backfill → enforce `NOT NULL`) for introducing foreign keys on already-populated tables
+
+</details>
 
 ## Design highlights
 
 A few decisions worth a second look if you're skimming the code:
 
+- **An agent gets no back door.** The MCP server lives outside `src/` and never imports it: it only calls the HTTP API, with the user's API token. Everything built to protect the API — rate limits, idempotency, ownership — therefore applies to the agent too, and an API token can't act as an admin or manage the account. Retrying a creation reuses the agent's idempotency key, so a blind retry never duplicates.
+- **A human stays in the loop where it matters.** An agent's bulk deletion becomes a request that freezes the exact todos it targets, chosen by the server rather than by the agent; the user approves that list, nothing more. Approving is a single conditional `UPDATE` on the pending row, so two approvals at once can't run the deletion twice, and an expired request can't be approved at all. Stored texts — especially category names, shared between users — can carry instructions aimed at the agent: the MCP server tells the model they are data, but the real limit is structural, since a token can neither manage the account, nor act as an admin, nor approve anything — nor create or rename a category, the one text every other user's agent would read.
+- **An agent's behaviour is measured, not assumed.** The evals check what the agent actually did — the rows left in the database and the tools it called — rather than what it says it did. A cheaper model acts as a judge only for what can't be checked that way, the wording of a reply. Each run starts from a fresh in-memory app whose requests commit as in production, and the harness itself is tested in CI against a scripted fake model, at no cost.
 - **Ownership lives in the query, not as an afterthought.** `TodoRepository` takes an `owner_id: int | None` filter; the service computes it as `current_user.id`, or, for an admin, the optional `owner_id` query parameter (no filter when absent). Requesting someone else's todo returns `404`, never `403` — the row simply doesn't match the filter, so the API never confirms whether an ID belongs to another user.
+
+<details>
+<summary><strong>Nine more</strong></summary>
+
 - **Uniqueness is enforced by the database, not by a check-then-insert.** Category names, emails and pseudos are unique case-insensitively through functional unique indexes (`lower(name)`). Services don't query first: they insert, catch the `IntegrityError`, and return a clean `409` — so two concurrent requests can't both slip through. A dedicated test runs the two inserts concurrently to prove it. The category index is partial (`WHERE deleted_at IS NULL`), so the name of a soft-deleted category can be reused.
 - **Refresh tokens are stored hashed and rotated atomically.** Redis only holds the SHA-256 of a token, never the token itself. Each `/refresh` consumes it with a single `GETDEL`, so the same token can't be exchanged twice, even by two requests arriving at the same time. Rotation alone would let an active session renew itself forever, so a separate, longer-lived marker caps the session's absolute lifetime regardless of activity. Changing your password or your email revokes it outright, the same way logging out does.
 - **Login takes the same time whether the email exists or not.** An unknown email still runs a full Argon2 verification, against a dummy hash computed once at startup, instead of short-circuiting — otherwise the response time alone would reveal which emails are registered, even behind an identical error message.
 - **Rate limits that only punish failures.** Login attempts are counted per IP *and* per email, so neither rotating emails from one machine nor spreading guesses across machines gets around the limit — and only failed attempts count, so a legitimate user is never throttled for logging in. Each attempt is reserved with an atomic `INCR` before the password is checked, then given back unless it failed, so attempts sent in parallel can't all slip under the limit. The services know nothing about it: limits are checked and counted at the router level.
 - **Retries that can't create duplicates, even concurrent ones.** A client that times out and retries is the classic duplicate-maker — and the retry usually arrives while the first request is still running. The idempotency key is therefore claimed atomically in Redis (`SET NX`) *before* the request runs, so a concurrent retry gets a `409` instead of running twice, as long as the first request finishes within the lock's TTL (30 seconds). Only successful responses are stored, and only once the database transaction has actually committed.
-- **An agent gets no back door.** The MCP server lives outside `src/` and never imports it: it only calls the HTTP API, with the user's API token. Everything built to protect the API — rate limits, idempotency, ownership — therefore applies to the agent too, and an API token can't act as an admin or manage the account. Retrying a creation reuses the agent's idempotency key, so a blind retry never duplicates.
-- **A human stays in the loop where it matters.** An agent's bulk deletion becomes a request that freezes the exact todos it targets, chosen by the server rather than by the agent; the user approves that list, nothing more. Approving is a single conditional `UPDATE` on the pending row, so two approvals at once can't run the deletion twice, and an expired request can't be approved at all. Stored texts — especially category names, shared between users — can carry instructions aimed at the agent: the MCP server tells the model they are data, but the real limit is structural, since a token can neither manage the account, nor act as an admin, nor approve anything — nor create or rename a category, the one text every other user's agent would read.
-- **An agent's behaviour is measured, not assumed.** The evals check what the agent actually did — the rows left in the database and the tools it called — rather than what it says it did. A cheaper model acts as a judge only for what can't be checked that way, the wording of a reply. Each run starts from a fresh in-memory app whose requests commit as in production, and the harness itself is tested in CI against a scripted fake model, at no cost.
 - **A cache that never takes the API down.** Paginated category lists are invalidated with a generation counter (one `INCR` instead of hunting for every cached page). Every Redis call on the cache path is allowed to fail: the request falls back to PostgreSQL and logs a warning, except a failed read of the generation counter, which silently falls back to generation 0.
 - **Generic repository layer.** `BaseRepository[ModelT: Base]` (`src/core/repository.py`) uses Python 3.12's native generic syntax (`class Foo[T]`) to share pagination, counting and typed filtering across every repository, while each resource keeps its own fully-typed filter parameters — no dynamic/untyped filter dicts. A `SoftDeleteRepository` layer adds restoring and the pruning of old soft-deleted rows to the two models that need it, and only to them.
 - **Clean Architecture, enforced consistently.** Every module follows the same `router → service → repository → models` layering; services raise framework-agnostic exceptions (`NotFoundError`, `ForbiddenError`, ...) mapped to HTTP status codes in one place, never `HTTPException` scattered through the business logic.
 - **Tested at two levels.** Fast unit tests exercise each service in isolation with mocked repositories; integration tests run the full FastAPI stack against a real (in-memory) database. CI also applies every migration to a real PostgreSQL instance, and audits the locked dependencies against known vulnerabilities (`pip-audit`) — the Docker image isn't published while one is reported.
 
+</details>
+
+## Tech stack
+
+- **Python 3.12** · [uv](https://docs.astral.sh/uv/) for dependency management
+- **FastAPI** — async web framework, automatic OpenAPI docs
+- **SQLAlchemy 2.0** (async) + **Alembic** — ORM and migrations
+- **PostgreSQL** · **Redis** (cache, refresh tokens, rate-limit counters, idempotency keys, job queue)
+- **Taskiq** — async background jobs and scheduling (worker + scheduler processes)
+- **MCP Python SDK** — the MCP server that lets an AI agent use the API
+- **Anthropic Python SDK** — evals that run a real Claude model on the MCP tools
+- **Pydantic v2** — request/response validation and serialization
+- **argon2-cffi** — password hashing · **PyJWT** — access tokens
+- **structlog** — JSON logs with a request ID on every line
+- **pytest** + **httpx** + **pytest-xdist** — unit and integration tests, on in-memory SQLite and `fakeredis`, in parallel
+- **Ruff** — linting and formatting
+- **Docker Compose** · **GitHub Actions**
+
 ## Getting started
 
-```bash
-git clone https://github.com/JrSaban/fastapi-todo-mcp.git
-cd fastapi-todo-mcp
-cp .env.example .env
-```
+The [Try it](#try-it) section above is the short path. The rest of what you may need:
 
-Set a real `JWT_SECRET_KEY` in `.env` — the app refuses to start with the placeholder, or with anything shorter than 32 bytes:
-
-```bash
-openssl rand -hex 32
-```
-
-Then start everything:
-
-```bash
-docker compose up -d --build   # API on :8000, Postgres on :5432, Redis on :6379, job worker + scheduler
-```
-
-The database migrations run on their own before the API starts, at every `up`.
-
-To try the API with data already in it, load the demo accounts, categories and todos. The command prints the accounts and their passwords, drawn at random on each run:
-
-```bash
-docker compose exec api uv run python -m charmer seed-demo
-```
-
-It only runs on a fresh install: as soon as the database holds an account, it refuses without writing anything. To start over from an empty database, wipe the volumes, then start again:
-
-```bash
-docker compose down -v
-docker compose up -d
-```
-
-To create your own admin account instead, answer the questions of:
-
-```bash
-docker compose exec api uv run python -m charmer create-admin
-```
-
-Interactive API docs (Swagger UI) are available at [http://localhost:8000/docs](http://localhost:8000/docs) when `DEBUG=True`, as in `.env.example`. They are off by default.
+- **Starting over.** `seed-demo` only runs on a fresh install: as soon as the database holds an account, it refuses without writing anything. To start from an empty database, wipe the volumes with `docker compose down -v`, then `docker compose up -d` again.
+- **Your own admin account.** Instead of the demo data, answer the questions of `docker compose exec api uv run python -m charmer create-admin`.
+- **The API docs.** The Swagger UI at [/docs](http://localhost:8000/docs) only exists when `DEBUG=True`. `.env.example` sets it, so a fresh install has it; without the variable, the app turns it off.
 
 <details>
 <summary>Running the API on the host</summary>
@@ -125,13 +156,16 @@ The repository ships a `.mcp.json`, so Claude Code offers the `todo-api` server 
 2. Copy `.env.mcp.example` to `.env.mcp` (gitignored) and put the token in `TODO_API_TOKEN`.
 3. With the API running, open Claude Code in the project and approve the server; `/mcp` lists its tools.
 
-**Remote mode.** The same server can run over HTTP, shared by several agents, each sending its own token:
+<details>
+<summary>Remote mode: one MCP server over HTTP, shared by several agents</summary>
 
 1. Generate a service key (`openssl rand -hex 32`) and put it in `.env` as `MCP_SERVICE_KEY`. The API and the MCP server both read it there.
 2. Start the stack with the MCP server: `docker compose --profile mcp up -d`. It listens on `http://localhost:8001/mcp`.
 3. Each user creates a token with `"usage": "mcp"` (`POST /api/v1/api-tokens`), and the agent sends it as `Authorization: Bearer tda_...`. An `mcp` token works only through this server, a default `api` token only without it.
 
 Before exposing it beyond your machine, put it behind an HTTPS reverse proxy and set `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` and `MCP_TRUSTED_PROXIES` for it. The design and its threats are in [`docs/remote-mcp-security-review.md`](docs/remote-mcp-security-review.md).
+
+</details>
 
 ## Running the tests
 
@@ -159,6 +193,9 @@ uv run --env-file .env.evals python -m evals
 ## API overview
 
 All routes are prefixed with `/api/v1`, except `GET /health`, which needs no authentication and is never rate-limited. `POST /todos`, `POST /categories` and `POST /todos/delete-completed` accept an `Idempotency-Key` header, required when authenticating with an API token.
+
+<details>
+<summary>All routes</summary>
 
 | Method | Path | Description |
 |---|---|---|
@@ -194,7 +231,12 @@ All routes are prefixed with `/api/v1`, except `GET /health`, which needs no aut
 | `GET` | `/audit-logs` | Audit entries about your resources (all of them for admins), filterable by action, resource and API token *(login session only)* |
 | `GET` | `/audit-logs/{id}` | One audit entry *(login session only)* |
 
+</details>
+
 ## Project structure
+
+<details>
+<summary>The repository's layout</summary>
 
 ```
 src/
@@ -216,13 +258,28 @@ src/
 └── main.py          # app wiring: routers, middleware order, exception handler
 charmer.py           # console launcher: python -m charmer <command>, like Laravel's artisan
 mcp_server/          # MCP server for AI agents, stdio or HTTP: an HTTP client of the API, never imports src/
-docs/                # design documents (the remote MCP server's security review)
+docs/                # design documents (the remote MCP server's security review) and the README's demo
 evals/               # evals: a real Claude model uses the MCP tools, scenarios check what it did
 alembic/versions/    # migrations
 tests/               # integration tests + tests/unit/ for isolated service tests
+.claude/             # Claude Code setup: settings, skills and review agents
 ```
 
-Branch, commit and PR conventions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+</details>
+
+## How this was built
+
+This project is a lab for two learning goals at once.
+
+**Moving from PHP/Laravel to Python.** I came to it as an experienced Laravel developer, to learn Python, FastAPI and SQLAlchemy on something real rather than on tutorials. The production code is mine, from JWT authentication with rotating refresh tokens to the generic repository layer. Many module docstrings keep the Laravel equivalent of what they implement (`SoftDeletes`, `Prunable`, `artisan`), which is how I mapped what I knew onto what I was learning.
+
+**Working with an AI agent, on purpose.** Claude Code is part of the project, with a fixed split of roles: I write the production code; it explains, reviews my code, and writes the tests, the docstrings and the documentation. The agent is steered by files in the repository rather than by repeated instructions:
+
+- [`CLAUDE.md`](CLAUDE.md) records this project's own decisions and their reasons, and nothing that is true of FastAPI in general: the layering rules, why a check is ordered the way it is, the known limitations not to "fix" by accident.
+- [`.claude/skills/`](.claude/skills) holds the repeatable workflows: the commit rules, reviewing a branch before its pull request, writing the pull-request description, reviewing the docs against the code. The two reviews run in read-only agents ([`.claude/agents/`](.claude/agents)).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) holds the branch, commit and pull-request conventions that people and agent both follow.
+
+The project is also built *for* agents: the MCP server, the approval of bulk actions and the evals came from asking what an agent should and shouldn't be able to do with someone's data.
 
 ## License
 

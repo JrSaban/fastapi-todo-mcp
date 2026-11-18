@@ -26,7 +26,7 @@ Arguments: $ARGUMENTS
    - `uv run pytest --collect-only -q` — the test suite loads (imports, fixtures), without
      running the tests.
    Keep each command's outcome (success, or the error lines). Never run the commands of
-   Getting started that start services or touch a database.
+   Try it and Getting started that start services or touch a database.
 3. Delegate the review to the docs-reviewer subagent, naming the mode, passing the setup
    checks' outcomes and, in diff mode, the docs diff and the changed code files.
 4. Show me its list as is, numbered.
